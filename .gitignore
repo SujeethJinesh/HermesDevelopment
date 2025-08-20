@@ -205,3 +205,8 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# HERMES specific
+scratch/
+manifest_*.json
+metrics.json
