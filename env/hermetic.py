@@ -17,6 +17,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
 import argparse
+import yaml
 
 
 class HermeticNetworkError(Exception):
@@ -60,6 +61,7 @@ class HermeticRun:
         self.setup_end_ns = 0
         self.cleanup_start_ns = 0
         self.cleanup_end_ns = 0
+        self.network_guard_install_ms = 0.0
         
         # Manifest data
         self.manifest: Dict[str, Any] = {}
@@ -137,13 +139,15 @@ class HermeticRun:
     
     def _install_network_guard(self) -> None:
         """Install network blocking in venv via sitecustomize.py."""
+        guard_start_ns = time.perf_counter_ns()
+        
         site_packages = self.venv_path / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"
         sitecustomize_path = site_packages / "sitecustomize.py"
         
         # Ensure site-packages exists
         site_packages.mkdir(parents=True, exist_ok=True)
         
-        # Write network guard
+        # Write network guard with DNS blocking
         guard_code = '''"""Network guard for hermetic execution."""
 import socket
 import os
@@ -151,6 +155,7 @@ import os
 if os.environ.get("HERMES_HERMETIC") == "1":
     _original_socket = socket.socket
     _original_create_connection = socket.create_connection
+    _original_getaddrinfo = socket.getaddrinfo
     
     class HermeticNetworkError(Exception):
         """Network access blocked in hermetic mode."""
@@ -165,18 +170,40 @@ if os.environ.get("HERMES_HERMETIC") == "1":
     def _blocked_create_connection(*args, **kwargs):
         raise HermeticNetworkError("Network access blocked in hermetic mode")
     
+    def _blocked_getaddrinfo(*args, **kwargs):
+        # Allow localhost lookups
+        if args and args[0] in ("localhost", "127.0.0.1", "::1", None):
+            return _original_getaddrinfo(*args, **kwargs)
+        raise HermeticNetworkError("DNS lookups blocked in hermetic mode")
+    
     socket.socket = _blocked_socket
     socket.create_connection = _blocked_create_connection
+    socket.getaddrinfo = _blocked_getaddrinfo
 '''
         
         with open(sitecustomize_path, "w") as f:
             f.write(guard_code)
+        
+        guard_end_ns = time.perf_counter_ns()
+        self.network_guard_install_ms = (guard_end_ns - guard_start_ns) / 1_000_000
     
     def _compute_venv_hash(self) -> str:
-        """Compute hash of venv contents."""
-        # Simple hash based on Python version and venv path
-        venv_str = f"{sys.version}:{self.venv_path}"
-        return hashlib.sha256(venv_str.encode()).hexdigest()[:16]
+        """Compute hash of venv contents based on lockfile."""
+        lockfile_path = Path("requirements.lock")
+        if lockfile_path.exists():
+            with open(lockfile_path, "rb") as f:
+                lockfile_content = f.read()
+            
+            # Store lockfile SHA in manifest
+            self.manifest["lockfile_sha"] = hashlib.sha256(lockfile_content).hexdigest()[:16]
+            
+            venv_str = f"{lockfile_content.decode('utf-8')}:{sys.version}"
+            return hashlib.sha256(venv_str.encode()).hexdigest()[:16]
+        else:
+            # Fallback to Python version only
+            self.manifest["lockfile_sha"] = None
+            venv_str = f"{sys.version}"
+            return hashlib.sha256(venv_str.encode()).hexdigest()[:16]
     
     def _cleanup(self) -> None:
         """Clean up scratch directory and temp files."""
@@ -210,9 +237,38 @@ if os.environ.get("HERMES_HERMETIC") == "1":
         
         self.cleanup_end_ns = time.perf_counter_ns()
     
+    def _get_model_info_from_config(self) -> Dict[str, Any]:
+        """Extract model information from config."""
+        config_path = Path("configs/generation.yaml")
+        if config_path.exists():
+            import yaml
+            with open(config_path) as f:
+                config = yaml.safe_load(f)
+            
+            # Extract quantization info
+            quantization = config.get("quantization", {})
+            
+            # Model SHAs would come from actual model files - null for now
+            return {
+                "model_shas": None,  # Would be computed from actual model files
+                "tokenizer_shas": None,  # Would be computed from tokenizer files
+                "quantization": {
+                    "default": quantization.get("default", "Q4_K_M"),
+                    "fallback": quantization.get("fallback", "Q5_K_M")
+                }
+            }
+        return {
+            "model_shas": None,
+            "tokenizer_shas": None,
+            "quantization": None
+        }
+    
     def setup(self) -> None:
         """Set up hermetic environment."""
         self.setup_start_ns = time.perf_counter_ns()
+        
+        # Get model info
+        model_info = self._get_model_info_from_config()
         
         # Collect manifest data early
         self.manifest = {
@@ -227,6 +283,9 @@ if os.environ.get("HERMES_HERMETIC") == "1":
             "scratch_path": str(self.scratch_base),
             "worktree_path": str(self.worktree_path),
             "venv_path": str(self.venv_path),
+            "model_shas": model_info["model_shas"],
+            "tokenizer_shas": model_info["tokenizer_shas"],
+            "quantization": model_info["quantization"],
         }
         
         # Set up environment
@@ -322,7 +381,7 @@ def selftest(args):
                 print("WARNING: Network guard not blocking connections")
             else:
                 print("Network guard active: connections blocked")
-                metrics["network_guard_install_ms"] = 5  # Approximate
+                metrics["network_guard_install_ms"] = run.network_guard_install_ms
         
         # Update metrics
         metrics["sandbox_setup_ms_p50"] = run.manifest["durations"]["setup_ms"]
