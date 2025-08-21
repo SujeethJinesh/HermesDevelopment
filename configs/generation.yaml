@@ -1,0 +1,53 @@
+# HERMES Generation Configuration
+# Single source of truth for generation parameters
+
+model:
+  temperature: 0.0
+  top_p: 0.95
+  max_tokens: 2048
+  seed: 42
+
+generation:
+  # Deterministic generation settings
+  do_sample: false
+  num_beams: 1
+  repetition_penalty: 1.0
+  
+  # Stop sequences
+  stop_sequences:
+    - "\n\n"
+    - "```"
+    - "</answer>"
+
+agents:
+  planner:
+    model: "llama3.1:8b"
+    temperature: 0.0
+  
+  coder:
+    model: "qwen2.5-coder:7b"
+    temperature: 0.0
+  
+  tester:
+    model: "llama3.1:8b"
+    temperature: 0.0
+  
+  critic:
+    model: "llama3.1:8b"
+    temperature: 0.0
+
+quantization:
+  default: "Q4_K_M"
+  fallback: "Q5_K_M"
+
+hermetic:
+  enabled: true
+  network_guard: true
+  cleanup_on_error: true
+  scratch_prefix: "scratch"
+
+benchmarks:
+  dataset: "swe-bench-lite"
+  max_workers: 4
+  timeout_seconds: 300
+  retry_attempts: 2
