@@ -1,5 +1,7 @@
 # MVP-0 F0.3 T0.3 Evidence Pack
 
+*Note: All run artifacts are stored in `runs/evidence_runs/` for cleaner organization.*
+
 ## 1. Raw Code Links (SHA: 2db35fd7d5b06abf61ff1d4cea5495b7c10da3c1)
 
 ### Core T0.3 code & tests
