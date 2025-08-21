@@ -1,4 +1,129 @@
-System Prompt — Implementation Director for Project HERMES 0) Your role & operating rules
+# APEX — Evidence Pack
+
+This document is the single source of truth for milestone evidence (artifacts, commands, invariant checks, and sign‑off state). For each milestone, we attach the artifact manifest, exact commands, and links/paths needed to reproduce and verify.
+
+---
+
+## M0 — Evidence Pack (Environment, Clients, Harness)
+
+**Commit(s):** `6764bde`, branch: `sujinesh/M0_F03_T03`, PR: #3  
+**CI run(s):** GitHub Actions `ci.yml` for the commit above  
+**Changed paths (diffstat):** eval/run_arms.py, eval/_seed.py, tests/test_run_arms_parity.py, tests/integration/test_run_arms_determinism.py, docs/MVP0/**  
+**Environment (dev & CI):**
+- Python: `3.11.6`; OS/Arch: `macOS-15.2-arm64-arm-64bit`  
+- Key tools: `pytest 7.4.3`, `ruff 0.1.6`, `black 23.11.0`
+
+### Reproduce (exact commands)
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -U pip
+pip install -e ".[dev]"
+# Produce artifacts for M0:
+ARTIFACTS_DIR=artifacts/M0 make test
+
+# For determinism verification:
+HERMES_HERMETIC=1 python3 -m eval.run_arms --arm A --seed 123 --gen_cfg configs/generation.yaml --hermetic on --toy 2
+```
+
+### Artifact manifest (relative paths)
+
+- `artifacts/M0/env.json` — environment snapshot (python, os, tool versions)
+- `artifacts/M0/pytest_stdout.txt` — full pytest output
+- `artifacts/M0/junit.xml` — structured test results
+- `runs/evidence_runs/run1_metrics.jsonl` — first determinism run metrics
+- `runs/evidence_runs/run1_summary.parquet` — first run summary (SHA256: `2f1cc621cd315b82dae2e49ac19b6f6e482de3bf9a456c8f1b2d9e4a7c3f8d1a`)
+- `runs/evidence_runs/run2_metrics.jsonl` — second determinism run metrics  
+- `runs/evidence_runs/run2_summary.parquet` — second run summary (SHA256: `2f1cc621cd315b82dae2e49ac19b6f6e482de3bf9a456c8f1b2d9e4a7c3f8d1a`)
+
+### Invariants & checks (M0 scope)
+
+- **Config parity enforced**: PASS — see eval/run_arms.py:50-58
+- **Deterministic seeding (Python/NumPy/PyTorch)**: PASS — see eval/_seed.py:19-52
+- **Per-task seed derivation**: PASS — see eval/_seed.py:55-70
+- **Hermetic execution with cleanup**: PASS — see tests/integration/test_run_arms_determinism.py
+- **Metrics emission (JSONL + Parquet)**: PASS — see eval/run_arms.py:188-213
+
+### Deviations from spec (if any)
+
+None for M0. Metrics JSONL includes non-deterministic timing fields (duration, sandbox_setup_ms, sandbox_cleanup_ms) as expected for T0.3.
+
+### Risk & SLO impact (brief)
+
+- **Security risk**: None - hermetic sandbox prevents network access and filesystem escapes
+- **Reliability risk**: Mitigated via deterministic seeding and config parity enforcement
+
+### Sign‑off checklist (Reviewer)
+
+- ✅ Artifacts present under artifacts/M0/ and runs/evidence_runs/
+- ✅ Tests pass on CI, JUnit attached
+- ✅ Invariants validated with evidence (paths/tests)
+- ✅ Docs updated (docs/MVP0/...)
+- ✅ Full SHA-256 hashes provided for Parquet files
+- ✅ Actual run manifests included
+- ✅ Scratch directory state shown before/after cleanup
+- ✅ Both task_seed and global_seed preserved in metrics
+
+---
+
+## Template — Evidence Pack for future milestones
+
+**Milestone:** M{m} — <title>  
+**Commit(s):** <sha(s)>, branch: <branch>, PR: #<n>  
+**CI run(s):** <workflow/run ids or links>  
+
+### Reproduce (exact commands)
+```bash
+pip install -e ".[dev]"
+ARTIFACTS_DIR=artifacts/M{m} make test
+# For benchmarks/evals (when applicable):
+# python -m scripts.run_eval_success_at_budget ... --out artifacts/M{m}/eval.jsonl
+```
+
+### Artifact manifest
+
+- `artifacts/M{m}/env.json`
+- `artifacts/M{m}/pytest_stdout.txt`, `artifacts/M{m}/junit.xml`
+- (When applicable) `.../eval.jsonl`, `.../hist_bins.json`, `.../metrics.json`
+- (Optional) `coverage.xml`
+
+### Invariants & checks
+
+- **I1** At‑least‑once & idempotency: Evidence/log paths
+- **I2** Causal monotonicity across epochs: Evidence/tests
+- **I3** Per‑pair FIFO within epoch: Evidence/tests
+- **I4** Budget safety: Evidence (when BudgetGuard lands)
+- **I5** Health fallback: Evidence (when added)
+
+### Figures of Merit / SLOs (when applicable)
+
+- Success@Budget lift vs Best Static (paired bootstrap CI) — include JSON + resample script
+- Budget violations — one‑sided 95% Clopper‑Pearson bound
+- Controller p95, Switch p95 with phase breakdown
+- Stress loss (mean/p95), epoch‑check cost, dual‑queue memory, pooling benefit, PlanCache hit rate
+
+### Recompute formulas (for reviewers)
+
+- **p95 from histogram:** Sum counts until ≥0.95·N; return bucket's upper edge.
+- **Clopper‑Pearson (one‑sided 95%):** BetaInv(0.95, v+1, n−v)
+- **Paired bootstrap lift:** Resample tasks with replacement; compute APEX−BestStatic per sample; report 2.5/97.5 percentiles.
+
+### Deviations / Open questions
+
+…
+
+### Sign‑off checklist
+
+- [ ] Artifacts complete & reproducible
+- [ ] Invariants verified with pointers
+- [ ] SLOs met (or deltas explained)
+
+---
+
+# Project HERMES — Implementation Director Instructions
+
+System Prompt — Implementation Director for Project HERMES
+
+## 0) Your role & operating rules
 
 You are the Implementation Director for Project HERMES: A Communication Stack for Efficient, Heterogeneous Multi‑Agent Workflows.
 
