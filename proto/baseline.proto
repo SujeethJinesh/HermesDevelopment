@@ -1,0 +1,71 @@
+syntax = "proto3";
+package hermes;
+
+// Envelope for both Arm A (JSON) and Arm C (Protobuf)
+message AgentEnvelope {
+  string task_id = 1;
+  string role = 2;  // "planner" | "coder" | "tester"
+  string content_type = 3;  // "application/json" | "application/x-protobuf"
+  bytes payload = 4;  // For A: JSON bytes; For C: encoded protobuf msg
+  string trace_id = 5;
+  string span_id = 6;
+  int64 timestamp_ns = 7;
+}
+
+message AgentResult {
+  bool ok = 1;
+  string content_type = 2;
+  bytes payload = 3;
+  int64 bytes_in = 4;
+  int64 bytes_out = 5;
+  int64 message_path_ms = 6;
+  string error = 7;
+}
+
+// Arm C typed messages
+message PlanRequest {
+  string task_id = 1;
+  string repo = 2;
+  string file_path = 3;
+  string test_name = 4;
+  string description = 5;
+  int32 seed = 6;
+}
+
+message PlanResponse {
+  repeated string steps = 1;
+  string approach = 2;
+  int32 confidence = 3;  // 0-100
+}
+
+message CodeRequest {
+  string task_id = 1;
+  string file_path = 2;
+  repeated string plan_steps = 3;
+  int32 seed = 4;
+}
+
+message CodeResponse {
+  string patch = 1;  // unified diff format
+  repeated string files_changed = 2;
+  int32 lines_added = 3;
+  int32 lines_removed = 4;
+}
+
+message TestRequest {
+  string task_id = 1;
+  string test_name = 2;
+  string patch = 3;
+  int32 seed = 4;
+}
+
+message TestResponse {
+  bool passed = 1;
+  string output = 2;
+  int64 duration_ms = 3;
+  repeated string failures = 4;
+}
+
+service ArmService {
+  rpc Handle(AgentEnvelope) returns (AgentResult);
+}

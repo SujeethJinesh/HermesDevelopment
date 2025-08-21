@@ -1,0 +1,1 @@
+"""HERMES protocol buffer definitions."""
