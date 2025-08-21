@@ -118,56 +118,64 @@ class ArmRunner:
         # For now, return empty list as we're focusing on the harness
         return []
 
-    def _run_agents_grpc(self, task: Dict[str, Any], task_seed: int, hermetic_run) -> Dict[str, Any]:
+    def _run_agents_grpc(
+        self, task: Dict[str, Any], task_seed: int, hermetic_run
+    ) -> Dict[str, Any]:
         """Run agents via gRPC for Arms A and C.
-        
+
         Args:
             task: Task dictionary
             task_seed: Deterministic seed for this task
             hermetic_run: HermeticRun instance with scratch path
-            
+
         Returns:
             Metrics dictionary
         """
         # Socket path - use /tmp for simplicity since UDS doesn't go over network
         # This is still hermetic as it's local only
         import tempfile
+
         socket_dir = Path(tempfile.gettempdir()) / f"hermes_{task['task_id']}_{task_seed}"
         socket_dir.mkdir(parents=True, exist_ok=True)
         socket_path = socket_dir / "rpc.sock"
-        
+
         # Create transport
         transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
-        
+
         try:
             # Start server
             transport.start_server()
             time.sleep(0.1)  # Give server time to start
-            
+
             # Connect client
             transport.connect_client()
-            
+
             # Track metrics
             total_bytes_in = 0
             total_bytes_out = 0
             message_paths = []
             rtts = []
-            
+
             # Prepare task data
-            task_data = json.dumps({
-                "task_id": task["task_id"],
-                "repo": task.get("repo", "test-repo"),
-                "file_path": task.get("file_path", "src/test.py"),
-                "test_name": task.get("test_name", "test_function"),
-                "description": task.get("description", "Fix the test")
-            }).encode("utf-8")
-            
+            task_data = json.dumps(
+                {
+                    "task_id": task["task_id"],
+                    "repo": task.get("repo", "test-repo"),
+                    "file_path": task.get("file_path", "src/test.py"),
+                    "test_name": task.get("test_name", "test_function"),
+                    "description": task.get("description", "Fix the test"),
+                }
+            ).encode("utf-8")
+
             # 1. Call Planner
             if self.arm == "A":
                 # Arm A: JSON
                 result, rtt = transport.call_agent(
-                    task["task_id"], "planner", task_data, 
-                    "application/json", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "planner",
+                    task_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
                 )
                 plan_data = json.loads(result.payload)["steps"] if result.ok else []
             else:
@@ -178,11 +186,14 @@ class ArmRunner:
                     file_path=task.get("file_path", "src/test.py"),
                     test_name=task.get("test_name", "test_function"),
                     description=task.get("description", "Fix the test"),
-                    seed=task_seed
+                    seed=task_seed,
                 )
                 result, rtt = transport.call_agent(
-                    task["task_id"], "planner", plan_req.SerializeToString(),
-                    "application/x-protobuf", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "planner",
+                    plan_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
                 )
                 if result.ok:
                     plan_resp = baseline_pb2.PlanResponse()
@@ -190,23 +201,28 @@ class ArmRunner:
                     plan_data = list(plan_resp.steps)
                 else:
                     plan_data = []
-            
+
             total_bytes_in += result.bytes_in
             total_bytes_out += result.bytes_out
             message_paths.append(result.message_path_ms)
             rtts.append(rtt)
-            
+
             # 2. Call Coder
             if self.arm == "A":
                 # Arm A: JSON with plan steps
-                code_data = json.dumps({
-                    "task_id": task["task_id"],
-                    "file_path": task.get("file_path", "src/test.py"),
-                    "plan_steps": plan_data
-                }).encode("utf-8")
+                code_data = json.dumps(
+                    {
+                        "task_id": task["task_id"],
+                        "file_path": task.get("file_path", "src/test.py"),
+                        "plan_steps": plan_data,
+                    }
+                ).encode("utf-8")
                 result, rtt = transport.call_agent(
-                    task["task_id"], "coder", code_data,
-                    "application/json", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "coder",
+                    code_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
                 )
                 patch = json.loads(result.payload)["patch"] if result.ok else ""
             else:
@@ -215,11 +231,14 @@ class ArmRunner:
                     task_id=task["task_id"],
                     file_path=task.get("file_path", "src/test.py"),
                     plan_steps=plan_data,
-                    seed=task_seed
+                    seed=task_seed,
                 )
                 result, rtt = transport.call_agent(
-                    task["task_id"], "coder", code_req.SerializeToString(),
-                    "application/x-protobuf", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "coder",
+                    code_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
                 )
                 if result.ok:
                     code_resp = baseline_pb2.CodeResponse()
@@ -227,23 +246,28 @@ class ArmRunner:
                     patch = code_resp.patch
                 else:
                     patch = ""
-            
+
             total_bytes_in += result.bytes_in
             total_bytes_out += result.bytes_out
             message_paths.append(result.message_path_ms)
             rtts.append(rtt)
-            
+
             # 3. Call Tester
             if self.arm == "A":
                 # Arm A: JSON
-                test_data = json.dumps({
-                    "task_id": task["task_id"],
-                    "test_name": task.get("test_name", "test_function"),
-                    "patch": patch
-                }).encode("utf-8")
+                test_data = json.dumps(
+                    {
+                        "task_id": task["task_id"],
+                        "test_name": task.get("test_name", "test_function"),
+                        "patch": patch,
+                    }
+                ).encode("utf-8")
                 result, rtt = transport.call_agent(
-                    task["task_id"], "tester", test_data,
-                    "application/json", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "tester",
+                    test_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
                 )
                 passed = json.loads(result.payload)["passed"] if result.ok else False
             else:
@@ -252,11 +276,14 @@ class ArmRunner:
                     task_id=task["task_id"],
                     test_name=task.get("test_name", "test_function"),
                     patch=patch,
-                    seed=task_seed
+                    seed=task_seed,
                 )
                 result, rtt = transport.call_agent(
-                    task["task_id"], "tester", test_req.SerializeToString(),
-                    "application/x-protobuf", f"trace_{task['task_id']}"
+                    task["task_id"],
+                    "tester",
+                    test_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
                 )
                 if result.ok:
                     test_resp = baseline_pb2.TestResponse()
@@ -264,27 +291,30 @@ class ArmRunner:
                     passed = test_resp.passed
                 else:
                     passed = False
-            
+
             total_bytes_in += result.bytes_in
             total_bytes_out += result.bytes_out
             message_paths.append(result.message_path_ms)
             rtts.append(rtt)
-            
+
             # Store RTT measurements
             self.rtt_measurements.extend(rtts)
-            
+
             # Write RTT data to file
             rtt_file = self.output_dir / "transport_rtts.jsonl"
             with open(rtt_file, "a") as f:
                 for r in rtts:
                     f.write(json.dumps({"task_id": task["task_id"], "rtt_ms": r}) + "\n")
-            
+
             # Calculate e2e latency (sum of all message paths)
             e2e_latency_ms = sum(message_paths)
-            
+
             # Calculate p95 message path
-            message_path_p95 = sorted(message_paths)[int(len(message_paths) * 0.95)] if message_paths else 0
-            
+            if message_paths:
+                message_path_p95 = sorted(message_paths)[int(len(message_paths) * 0.95)]
+            else:
+                message_path_p95 = 0
+
             return {
                 "bytes_in": total_bytes_in,
                 "bytes_out": total_bytes_out,
@@ -299,10 +329,10 @@ class ArmRunner:
                 "prefill_tokens": 150 + (task_seed % 50),
                 "decode_tokens": 100 + (task_seed % 30),
             }
-            
+
         finally:
             transport.stop()
-    
+
     def _run_task_hermetic(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Run a single task in hermetic environment.
 
