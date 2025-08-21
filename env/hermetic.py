@@ -194,8 +194,8 @@ if os.environ.get("HERMES_HERMETIC") == "1":
             with open(lockfile_path, "rb") as f:
                 lockfile_content = f.read()
             
-            # Store lockfile SHA in manifest
-            self.manifest["lockfile_sha"] = hashlib.sha256(lockfile_content).hexdigest()[:16]
+            # Store lockfile SHA in manifest (full 64-char SHA-256)
+            self.manifest["lockfile_sha"] = hashlib.sha256(lockfile_content).hexdigest()
             
             venv_str = f"{lockfile_content.decode('utf-8')}:{sys.version}"
             return hashlib.sha256(venv_str.encode()).hexdigest()[:16]
@@ -303,8 +303,33 @@ if os.environ.get("HERMES_HERMETIC") == "1":
             "setup_ms": (self.setup_end_ns - self.setup_start_ns) / 1_000_000
         }
     
+    def _capture_scratch_listing(self) -> Dict[str, Any]:
+        """Capture scratch directory listing for manifest."""
+        listing = {}
+        
+        if self.scratch_base.exists():
+            # Capture top-level scratch structure
+            for item in self.scratch_base.iterdir():
+                if item.is_dir():
+                    # Count files in subdirectory
+                    file_count = sum(1 for _ in item.rglob("*") if _.is_file())
+                    listing[item.name] = {
+                        "type": "directory",
+                        "file_count": file_count
+                    }
+                else:
+                    listing[item.name] = {
+                        "type": "file",
+                        "size": item.stat().st_size
+                    }
+        
+        return listing
+    
     def emit_manifest(self, path: Optional[Path] = None) -> Dict[str, Any]:
         """Emit run manifest."""
+        # Capture scratch listing before emitting
+        self.manifest["scratch_listing"] = self._capture_scratch_listing()
+        
         if path:
             with open(path, "w") as f:
                 json.dump(self.manifest, f, indent=2, sort_keys=True)

@@ -77,7 +77,7 @@ class ArmRunner:
             self.config = yaml.safe_load(f)
             f.seek(0)
             config_content = f.read()
-            self.config_hash = hashlib.sha256(config_content.encode()).hexdigest()[:16]
+            self.config_hash = hashlib.sha256(config_content.encode()).hexdigest()
 
         # Create run ID
         self.run_id = generate_deterministic_id(seed, f"arm_{arm}")
@@ -322,7 +322,7 @@ class ArmRunner:
                 "message_path_ms": message_path_p95,
                 "pass": passed,
                 "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
-                "run_manifest": hermetic_run.manifest,
+                "run_manifest": hermetic_run.emit_manifest(),  # Capture full manifest with scratch listing
                 # Mock token counts for now (would come from actual LLM)
                 "tokens_out": 250 + (task_seed % 100),
                 "tokens_in": 200 + (task_seed % 80),
@@ -356,7 +356,7 @@ class ArmRunner:
         metrics = {
             "task_id": task_id,
             "arm": self.arm,
-            "seed": task_seed,
+            "task_seed": task_seed,
             "hermetic": self.hermetic,
             "start_time": time.time(),
         }
@@ -393,7 +393,7 @@ class ArmRunner:
                         "message_path_ms": 5 + (task_seed % 3),
                         "pass": (task_seed % 3) != 0,  # Deterministic pass/fail
                         "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
-                        "run_manifest": hermetic_run.manifest,
+                        "run_manifest": hermetic_run.emit_manifest(),  # Capture full manifest with scratch listing
                     }
                 )
 
@@ -476,7 +476,8 @@ class ArmRunner:
         df["arm"] = self.arm
         df["run_id"] = self.run_id
         df["config_hash"] = self.config_hash
-        df["seed"] = self.seed
+        df["global_seed"] = self.seed  # Global seed used for the run
+        # task_seed is already preserved in each metric dict from _run_task
 
         # Sort columns for consistent output
         df = df.reindex(sorted(df.columns), axis=1)
