@@ -1,0 +1,20 @@
+........F.F............                                                  [100%]
+=================================== FAILURES ===================================
+____________ TestRunArmsDeterminism.test_parquet_deterministic_hash ____________
+tests/integration/test_run_arms_determinism.py:322: in test_parquet_deterministic_hash
+    content1 = df1_clean.to_json(orient="records", sort_keys=True)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/opt/homebrew/lib/python3.11/site-packages/pandas/util/_decorators.py:333: in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+E   TypeError: NDFrame.to_json() got an unexpected keyword argument 'sort_keys'
+_______________ TestHermeticRun.test_network_blocked_in_venv_py ________________
+tests/test_hermetic.py:67: in test_network_blocked_in_venv_py
+    assert result.returncode in (0, 2), f"Network not blocked properly: {result.stderr}"
+E   AssertionError: Network not blocked properly: 
+E   assert 1 in (0, 2)
+E    +  where 1 = CompletedProcess(args=['scratch/test_network/run_1755752742169/venv/bin/python', '-c', '\nimport socket\nimport sys\n\...   print(f"UNEXPECTED: {e}")\n        sys.exit(2)\n'], returncode=1, stdout='ERROR: Connection succeeded\n', stderr='').returncode
+- generated xml file: /Users/sujeethjinesh/Desktop/HermesDevelopment/artifacts/M0/junit.xml -
+=========================== short test summary info ============================
+FAILED tests/integration/test_run_arms_determinism.py::TestRunArmsDeterminism::test_parquet_deterministic_hash
+FAILED tests/test_hermetic.py::TestHermeticRun::test_network_blocked_in_venv_py
