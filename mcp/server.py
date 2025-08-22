@@ -12,9 +12,11 @@ from typing import Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+
 @dataclass
 class AnchorEntry:
     """An anchor entry with TTL and metadata."""
+
     ref: str
     data: bytes
     ttl_s: int
@@ -41,10 +43,10 @@ class MCPServer:
 
     # Default TTLs by content type
     DEFAULT_TTLS = {
-        "logs": 24 * 3600,     # 24 hours
-        "diffs": 7 * 24 * 3600, # 7 days
-        "repo": -1,            # Permanent (pinned by SHA)
-        "default": 3600        # 1 hour
+        "logs": 24 * 3600,  # 24 hours
+        "diffs": 7 * 24 * 3600,  # 7 days
+        "repo": -1,  # Permanent (pinned by SHA)
+        "default": 3600,  # 1 hour
     }
 
     def __init__(self, storage_path: Optional[Path] = None, max_size_mb: int = 1024):
@@ -69,7 +71,7 @@ class MCPServer:
             "misses": 0,
             "expired": 0,
             "rollbacks": 0,
-            "bytes_stored": 0
+            "bytes_stored": 0,
         }
 
         if storage_path:
@@ -86,24 +88,24 @@ class MCPServer:
             return
 
         try:
-            with open(metadata_file, 'r') as f:
+            with open(metadata_file, "r") as f:
                 metadata = json.load(f)
 
             for ref, info in metadata.items():
-                data_file = self.storage_path / info['sha256']
+                data_file = self.storage_path / info["sha256"]
                 if data_file.exists():
-                    with open(data_file, 'rb') as f:
+                    with open(data_file, "rb") as f:
                         data = f.read()
                     entry = AnchorEntry(
                         ref=ref,
                         data=data,
-                        ttl_s=info['ttl_s'],
-                        created_at=info['created_at'],
-                        namespace=info.get('namespace', 'default')
+                        ttl_s=info["ttl_s"],
+                        created_at=info["created_at"],
+                        namespace=info.get("namespace", "default"),
                     )
                     if not entry.is_expired():
                         self._anchors[ref] = entry
-                        self._stats['bytes_stored'] += entry.size_bytes
+                        self._stats["bytes_stored"] += entry.size_bytes
         except Exception as e:
             logger.warning(f"Failed to load persisted anchors: {e}")
 
@@ -118,24 +120,25 @@ class MCPServer:
                 # Write data file
                 data_file = self.storage_path / entry.sha256
                 if not data_file.exists():
-                    with open(data_file, 'wb') as f:
+                    with open(data_file, "wb") as f:
                         f.write(entry.data)
 
                 # Add to metadata
                 metadata[ref] = {
-                    'sha256': entry.sha256,
-                    'ttl_s': entry.ttl_s,
-                    'created_at': entry.created_at,
-                    'namespace': entry.namespace
+                    "sha256": entry.sha256,
+                    "ttl_s": entry.ttl_s,
+                    "created_at": entry.created_at,
+                    "namespace": entry.namespace,
                 }
 
         # Write metadata
         metadata_file = self.storage_path / "metadata.json"
-        with open(metadata_file, 'w') as f:
+        with open(metadata_file, "w") as f:
             json.dump(metadata, f, indent=2)
 
-    def put(self, ref: str, data: bytes, ttl_s: Optional[int] = None,
-            namespace: str = "default") -> Tuple[bool, str]:
+    def put(
+        self, ref: str, data: bytes, ttl_s: Optional[int] = None, namespace: str = "default"
+    ) -> Tuple[bool, str]:
         """Store data at the given reference.
 
         Args:
@@ -162,7 +165,7 @@ class MCPServer:
         with self._lock:
             # Check size limits
             new_size = len(data)
-            current_size = self._stats['bytes_stored']
+            current_size = self._stats["bytes_stored"]
 
             # If replacing, subtract old size
             if ref in self._anchors:
@@ -173,19 +176,15 @@ class MCPServer:
 
             # Create entry
             entry = AnchorEntry(
-                ref=ref,
-                data=data,
-                ttl_s=ttl_s,
-                created_at=time.time(),
-                namespace=namespace
+                ref=ref, data=data, ttl_s=ttl_s, created_at=time.time(), namespace=namespace
             )
 
             # Update storage
             if ref in self._anchors:
-                self._stats['bytes_stored'] -= self._anchors[ref].size_bytes
+                self._stats["bytes_stored"] -= self._anchors[ref].size_bytes
             self._anchors[ref] = entry
-            self._stats['bytes_stored'] += new_size
-            self._stats['puts'] += 1
+            self._stats["bytes_stored"] += new_size
+            self._stats["puts"] += 1
 
             # Persist if configured
             self._persist_to_disk()
@@ -204,22 +203,22 @@ class MCPServer:
         start_ns = time.perf_counter_ns()
 
         with self._lock:
-            self._stats['resolves'] += 1
+            self._stats["resolves"] += 1
 
             if ref not in self._anchors:
-                self._stats['misses'] += 1
+                self._stats["misses"] += 1
                 return None
 
             entry = self._anchors[ref]
             if entry.is_expired():
                 # Clean up expired entry
                 del self._anchors[ref]
-                self._stats['bytes_stored'] -= entry.size_bytes
-                self._stats['expired'] += 1
-                self._stats['misses'] += 1
+                self._stats["bytes_stored"] -= entry.size_bytes
+                self._stats["expired"] += 1
+                self._stats["misses"] += 1
                 return None
 
-            self._stats['hits'] += 1
+            self._stats["hits"] += 1
 
             # Log deref time for p95 tracking
             deref_ms = (time.perf_counter_ns() - start_ns) / 1e6
@@ -251,7 +250,7 @@ class MCPServer:
                 "created_at": entry.created_at,
                 "ttl_s": entry.ttl_s,
                 "expires_at": entry.created_at + entry.ttl_s if entry.ttl_s > 0 else None,
-                "namespace": entry.namespace
+                "namespace": entry.namespace,
             }
 
     def cleanup_namespace(self, namespace: str) -> int:
@@ -275,14 +274,16 @@ class MCPServer:
             for ref in to_remove:
                 del self._anchors[ref]
 
-            self._stats['bytes_stored'] -= bytes_freed
-            self._stats['rollbacks'] += len(to_remove)
+            self._stats["bytes_stored"] -= bytes_freed
+            self._stats["rollbacks"] += len(to_remove)
 
             # Persist changes
             self._persist_to_disk()
 
-            logger.info(f"Cleaned up {len(to_remove)} anchors in namespace '{namespace}' "
-                       f"({bytes_freed} bytes)")
+            logger.info(
+                f"Cleaned up {len(to_remove)} anchors in namespace '{namespace}' "
+                f"({bytes_freed} bytes)"
+            )
 
             return len(to_remove)
 
@@ -303,11 +304,12 @@ class MCPServer:
                         del self._anchors[ref]
 
                     if to_remove:
-                        self._stats['bytes_stored'] -= bytes_freed
-                        self._stats['expired'] += len(to_remove)
+                        self._stats["bytes_stored"] -= bytes_freed
+                        self._stats["expired"] += len(to_remove)
                         self._persist_to_disk()
-                        logger.info(f"Cleaned up {len(to_remove)} expired anchors "
-                                   f"({bytes_freed} bytes)")
+                        logger.info(
+                            f"Cleaned up {len(to_remove)} expired anchors " f"({bytes_freed} bytes)"
+                        )
 
                 # Run cleanup every 60 seconds
                 await asyncio.sleep(60)
@@ -342,6 +344,5 @@ class MCPServer:
             return {
                 **self._stats,
                 "anchors_count": len(self._anchors),
-                "namespaces": len(set(e.namespace for e in self._anchors.values()))
+                "namespaces": len(set(e.namespace for e in self._anchors.values())),
             }
-

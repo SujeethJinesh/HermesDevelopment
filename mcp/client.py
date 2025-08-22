@@ -21,8 +21,9 @@ class MCPClient:
         self.server = server
         self._deref_times_ms = []  # For p95 tracking
 
-    def put(self, ref: str, data: bytes, ttl_s: Optional[int] = None,
-            namespace: str = "default") -> Tuple[bool, str]:
+    def put(
+        self, ref: str, data: bytes, ttl_s: Optional[int] = None, namespace: str = "default"
+    ) -> Tuple[bool, str]:
         """Store data at the given reference.
 
         Args:
@@ -114,12 +115,13 @@ class MCPClient:
             p95_idx = int(len(sorted_times) * 0.95)
             p99_idx = int(len(sorted_times) * 0.99)
 
-            stats.update({
-                "deref_p50_ms": sorted_times[min(p50_idx, len(sorted_times) - 1)],
-                "deref_p95_ms": sorted_times[min(p95_idx, len(sorted_times) - 1)],
-                "deref_p99_ms": sorted_times[min(p99_idx, len(sorted_times) - 1)],
-                "deref_samples": len(self._deref_times_ms)
-            })
+            stats.update(
+                {
+                    "deref_p50_ms": sorted_times[min(p50_idx, len(sorted_times) - 1)],
+                    "deref_p95_ms": sorted_times[min(p95_idx, len(sorted_times) - 1)],
+                    "deref_p99_ms": sorted_times[min(p99_idx, len(sorted_times) - 1)],
+                    "deref_samples": len(self._deref_times_ms),
+                }
+            )
 
         return stats
-

@@ -24,11 +24,7 @@ class TestHermeticTCPBlocking:
         os.environ["HERMES_HERMETIC"] = "1"
 
         # Create hermetic run
-        run = HermeticRun(
-            task_id="test-tcp-block",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-tcp-block", seed=42, hermetic=True)
 
         with run():
             # Import socket inside hermetic context to get patched version
@@ -61,11 +57,7 @@ class TestHermeticTCPBlocking:
         os.environ["HERMES_HERMETIC"] = "1"
 
         # Create hermetic run
-        run = HermeticRun(
-            task_id="test-uds-allow",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-uds-allow", seed=42, hermetic=True)
 
         with run():
             # Import socket inside hermetic context
@@ -81,11 +73,7 @@ class TestHermeticTCPBlocking:
         # Enable hermetic mode
         os.environ["HERMES_HERMETIC"] = "1"
 
-        run = HermeticRun(
-            task_id="test-grpc-tcp",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-grpc-tcp", seed=42, hermetic=True)
 
         with run():
             # Attempting to create TCP channel should fail or timeout
@@ -101,11 +89,7 @@ class TestHermeticTCPBlocking:
         # Enable hermetic mode
         os.environ["HERMES_HERMETIC"] = "1"
 
-        run = HermeticRun(
-            task_id="test-grpc-uds",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-grpc-uds", seed=42, hermetic=True)
 
         with run():
             import tempfile

@@ -31,10 +31,10 @@ class TestMCPServer:
 
         # Check stats
         stats = server.get_stats()
-        assert stats['puts'] == 1
-        assert stats['resolves'] == 1
-        assert stats['hits'] == 1
-        assert stats['misses'] == 0
+        assert stats["puts"] == 1
+        assert stats["resolves"] == 1
+        assert stats["hits"] == 1
+        assert stats["misses"] == 0
 
     def test_ttl_expiry(self):
         """Test TTL expiry mechanism."""
@@ -57,8 +57,8 @@ class TestMCPServer:
 
         # Check stats
         stats = server.get_stats()
-        assert stats['expired'] == 1
-        assert stats['misses'] == 1
+        assert stats["expired"] == 1
+        assert stats["misses"] == 1
 
     def test_default_ttls(self):
         """Test default TTLs by content type."""
@@ -109,7 +109,7 @@ class TestMCPServer:
 
         # Check stats
         stats = server.get_stats()
-        assert stats['rollbacks'] == 2
+        assert stats["rollbacks"] == 2
 
     def test_stat_operation(self):
         """Test stat operation for metadata."""
@@ -122,12 +122,12 @@ class TestMCPServer:
         # Get metadata
         meta = server.stat(ref)
         assert meta is not None
-        assert meta['ref'] == ref
-        assert meta['size_bytes'] == len(data)
-        assert meta['ttl_s'] == 3600
-        assert meta['namespace'] == 'default'
-        assert 'sha256' in meta
-        assert 'created_at' in meta
+        assert meta["ref"] == ref
+        assert meta["size_bytes"] == len(data)
+        assert meta["ttl_s"] == 3600
+        assert meta["namespace"] == "default"
+        assert "sha256" in meta
+        assert "created_at" in meta
 
         # Non-existent ref
         assert server.stat("mcp://missing") is None
@@ -184,16 +184,23 @@ class TestMCPServer:
         try:
             # Add expired anchor
             ref = "mcp://expired/test"
-            server._anchors[ref] = server._anchors.get("dummy", type('', (), {
-                'ref': ref,
-                'data': b"old",
-                'ttl_s': 1,
-                'created_at': time.time() - 100,  # Expired 99s ago
-                'namespace': 'default',
-                'sha256': 'abc',
-                'is_expired': lambda: True,
-                'size_bytes': 3
-            })())
+            server._anchors[ref] = server._anchors.get(
+                "dummy",
+                type(
+                    "",
+                    (),
+                    {
+                        "ref": ref,
+                        "data": b"old",
+                        "ttl_s": 1,
+                        "created_at": time.time() - 100,  # Expired 99s ago
+                        "namespace": "default",
+                        "sha256": "abc",
+                        "is_expired": lambda: True,
+                        "size_bytes": 3,
+                    },
+                )(),
+            )
 
             # Should be cleaned up (but we won't wait 60s for the task)
             # Just verify server is running
@@ -209,10 +216,7 @@ class TestMCPServer:
         client = MCPClient(server)
 
         # Prepare test data
-        test_data = {
-            f"mcp://perf/{i}": b"x" * (i * 100)  # Varying sizes
-            for i in range(100)
-        }
+        test_data = {f"mcp://perf/{i}": b"x" * (i * 100) for i in range(100)}  # Varying sizes
 
         # Store all data
         for ref, data in test_data.items():
@@ -230,9 +234,9 @@ class TestMCPServer:
 
         # Verify stats
         stats = client.get_stats()
-        assert 'deref_p50_ms' in stats
-        assert 'deref_p95_ms' in stats
-        assert stats['deref_p95_ms'] < 50.0
+        assert "deref_p50_ms" in stats
+        assert "deref_p95_ms" in stats
+        assert stats["deref_p95_ms"] < 50.0
 
     def test_client_operations(self):
         """Test MCP client operations."""
@@ -252,7 +256,7 @@ class TestMCPServer:
         # Stat via client
         meta = client.stat(ref)
         assert meta is not None
-        assert meta['size_bytes'] == len(data)
+        assert meta["size_bytes"] == len(data)
 
         # Cleanup namespace via client
         client.put("mcp://spec/1", b"spec1", namespace="test-spec")
@@ -262,9 +266,9 @@ class TestMCPServer:
 
         # Check client stats
         stats = client.get_stats()
-        assert stats['puts'] == 3
-        assert stats['resolves'] == 1
-        assert stats['rollbacks'] == 2
+        assert stats["puts"] == 3
+        assert stats["resolves"] == 1
+        assert stats["rollbacks"] == 2
 
     def test_concurrent_access(self):
         """Test thread-safe concurrent access."""
@@ -309,8 +313,8 @@ class TestMCPServer:
 
         # Verify all data
         stats = server.get_stats()
-        assert stats['puts'] == 100  # 10 workers * 10 puts
-        assert stats['resolves'] == 100
+        assert stats["puts"] == 100  # 10 workers * 10 puts
+        assert stats["resolves"] == 100
 
 
 if __name__ == "__main__":

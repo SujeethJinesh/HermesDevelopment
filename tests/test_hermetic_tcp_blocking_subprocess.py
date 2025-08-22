@@ -23,11 +23,7 @@ class TestHermeticTCPBlockingSubprocess:
         os.environ["HERMES_HERMETIC"] = "1"
 
         # Create hermetic run
-        run = HermeticRun(
-            task_id="test-tcp-subprocess",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-tcp-subprocess", seed=42, hermetic=True)
 
         # Setup hermetic environment
         run.setup()
@@ -35,7 +31,8 @@ class TestHermeticTCPBlockingSubprocess:
         try:
             # Create test script
             test_script = run.scratch_base / "test_tcp.py"
-            test_script.write_text("""
+            test_script.write_text(
+                """
 import socket
 import sys
 
@@ -65,14 +62,15 @@ except Exception as e:
 
 print("SUCCESS: All TCP operations properly blocked")
 sys.exit(0)
-""")
+"""
+            )
 
             # Run script in hermetic venv
             result = subprocess.run(
                 [str(run.venv_path / "bin" / "python"), str(test_script)],
                 capture_output=True,
                 text=True,
-                env={**os.environ, "HERMES_HERMETIC": "1"}
+                env={**os.environ, "HERMES_HERMETIC": "1"},
             )
 
             print("=== Subprocess stdout ===")
@@ -96,11 +94,7 @@ sys.exit(0)
         os.environ["HERMES_HERMETIC"] = "1"
 
         # Create hermetic run
-        run = HermeticRun(
-            task_id="test-uds-subprocess",
-            seed=42,
-            hermetic=True
-        )
+        run = HermeticRun(task_id="test-uds-subprocess", seed=42, hermetic=True)
 
         # Setup hermetic environment
         run.setup()
@@ -108,7 +102,8 @@ sys.exit(0)
         try:
             # Create test script
             test_script = run.scratch_base / "test_uds.py"
-            test_script.write_text("""
+            test_script.write_text(
+                """
 import socket
 import sys
 import os
@@ -141,14 +136,15 @@ except Exception as e:
 
 print("SUCCESS: UNIX domain sockets work correctly")
 sys.exit(0)
-""")
+"""
+            )
 
             # Run script in hermetic venv
             result = subprocess.run(
                 [str(run.venv_path / "bin" / "python"), str(test_script)],
                 capture_output=True,
                 text=True,
-                env={**os.environ, "HERMES_HERMETIC": "1"}
+                env={**os.environ, "HERMES_HERMETIC": "1"},
             )
 
             print("=== Subprocess stdout ===")

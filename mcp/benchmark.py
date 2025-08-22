@@ -16,9 +16,9 @@ def benchmark_mcp_performance():
 
     # Prepare various sized data
     test_cases = [
-        ("small", b"x" * 100),        # 100 bytes
-        ("medium", b"y" * 10_000),    # 10 KB
-        ("large", b"z" * 100_000),    # 100 KB
+        ("small", b"x" * 100),  # 100 bytes
+        ("medium", b"y" * 10_000),  # 10 KB
+        ("large", b"z" * 100_000),  # 100 KB
     ]
 
     # Store test data
@@ -90,4 +90,3 @@ def benchmark_mcp_performance():
 if __name__ == "__main__":
     success = benchmark_mcp_performance()
     exit(0 if success else 1)
-
