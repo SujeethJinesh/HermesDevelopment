@@ -2,6 +2,8 @@
 
 This document is the single source of truth for milestone evidence (artifacts, commands, invariant checks, and sign‑off state). For each milestone, we attach the artifact manifest, exact commands, and links/paths needed to reproduce and verify.
 
+## IMPORTANT: Always include permalinks to the committed code and push commits to the current branch
+
 ---
 
 ## Evidence Pack (REQUIRED on every MVP task)
