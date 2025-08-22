@@ -1,0 +1,11 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.6, pytest-8.4.1, pluggy-1.6.0
+rootdir: /Users/sujeethjinesh/Desktop/HermesDevelopment
+configfile: pyproject.toml
+plugins: asyncio-1.1.0, anyio-4.9.0, langsmith-0.4.1, cov-6.2.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 2 items
+
+tests/test_transport_rtt.py ..                                           [100%]
+
+============================== 2 passed in 1.33s ===============================

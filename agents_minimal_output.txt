@@ -1,0 +1,17 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.6, pytest-8.4.1, pluggy-1.6.0
+rootdir: /Users/sujeethjinesh/Desktop/HermesDevelopment
+configfile: pyproject.toml
+plugins: asyncio-1.1.0, anyio-4.9.0, langsmith-0.4.1, cov-6.2.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 9 items
+
+tests/test_agents_minimal.py .........                                   [100%]
+
+=============================== warnings summary ===============================
+agents/tester.py:9
+  /Users/sujeethjinesh/Desktop/HermesDevelopment/agents/tester.py:9: PytestCollectionWarning: cannot collect test class 'Tester' because it has a __init__ constructor (from: tests/test_agents_minimal.py)
+    class Tester:
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========================= 9 passed, 1 warning in 0.04s =========================
