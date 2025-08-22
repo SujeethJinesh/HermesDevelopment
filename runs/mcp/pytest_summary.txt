@@ -1,0 +1,34 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.6, pytest-8.4.1, pluggy-1.6.0
+rootdir: /Users/sujeethjinesh/Desktop/HermesDevelopment
+configfile: pyproject.toml
+collected 26 items
+
+tests/mcp/test_server_unit.py::TestAnchorEntry::test_anchor_entry_creation PASSED
+tests/mcp/test_server_unit.py::TestAnchorEntry::test_expiry_check PASSED
+tests/mcp/test_server_unit.py::TestMCPServerCore::test_put_and_resolve PASSED
+tests/mcp/test_server_unit.py::TestMCPServerCore::test_missing_key_resolve PASSED
+tests/mcp/test_server_unit.py::TestMCPServerCore::test_overwrite_entry PASSED
+tests/mcp/test_server_unit.py::TestMCPServerCore::test_stat_operation PASSED
+tests/mcp/test_server_unit.py::TestMCPServerCore::test_stat_expired_entry PASSED
+tests/mcp/test_server_unit.py::TestMCPServerTTL::test_default_ttl_inference PASSED
+tests/mcp/test_server_unit.py::TestMCPServerTTL::test_ttl_expiry_cleanup PASSED
+tests/mcp/test_server_unit.py::TestMCPServerTTL::test_permanent_entries PASSED
+tests/mcp/test_server_unit.py::TestMCPServerNamespaces::test_namespace_isolation PASSED
+tests/mcp/test_server_unit.py::TestMCPServerNamespaces::test_namespace_cleanup PASSED
+tests/mcp/test_server_unit.py::TestMCPServerNamespaces::test_cleanup_nonexistent_namespace PASSED
+tests/mcp/test_server_unit.py::TestMCPServerLimits::test_storage_size_limit PASSED
+tests/mcp/test_server_unit.py::TestMCPServerLimits::test_large_payload_handling PASSED
+tests/mcp/test_server_unit.py::TestMCPServerLimits::test_concurrent_size_tracking PASSED
+tests/mcp/test_server_unit.py::TestContentAddressedStorage::test_content_addressed_storage PASSED
+tests/mcp/test_server_unit.py::TestContentAddressedStorage::test_index_persistence PASSED
+tests/mcp/test_server_unit.py::TestContentAddressedStorage::test_storage_size_calculation PASSED
+tests/mcp/test_server_unit.py::TestContentAddressedStorage::test_orphaned_cleanup PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_ttl_expiry_200ms PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_ttl_500ms_boundary PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_mixed_ttl_expiry_order PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_ttl_classes_with_mocked_time PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_no_stale_reads_after_expiry PASSED
+tests/mcp/test_ttl_deterministic.py::TestDeterministicTTL::test_ttl_update_on_overwrite PASSED
+
+============================== 26 passed in 3.54s ==============================

@@ -1,0 +1,25 @@
+{
+  "model_sha": null,
+  "tokenizer_sha": null,
+  "quantization": null,
+  "base_repo_sha": "81736b1",
+  "run_repo_sha": "pending",
+  "config_hash": "N/A",
+  "lockfile_sha": "N/A",
+  "os_fingerprint": "Darwin-24.6.0-x86_64",
+  "python_version": "3.11.6",
+  "seed": null,
+  "venv_hash": null,
+  "hermetic": true,
+  "timestamp": "2024-08-22T00:00:00Z",
+  "test_environment": {
+    "storage_backend": "memory_with_disk_persistence",
+    "test_mode": "HERMES_HERMETIC=1",
+    "network_blocked": true
+  },
+  "scratch_cleanup": {
+    "before": "empty",
+    "after": "empty",
+    "temp_dirs_cleaned": true
+  }
+}

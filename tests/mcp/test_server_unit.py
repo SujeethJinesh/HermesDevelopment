@@ -44,13 +44,15 @@ class TestAnchorEntry:
         )
         assert not entry.is_expired()
         
-        # Expired entry
+        # Expired entry - manually set monotonic time in the past
         entry_expired = AnchorEntry(
             ref="mcp://test/2",
             data=b"data",
             ttl_s=1,
             created_at=time.time() - 10,  # Created 10s ago with 1s TTL
         )
+        # Override monotonic time to simulate expiry
+        entry_expired.created_at_monotonic = time.monotonic() - 10
         assert entry_expired.is_expired()
         
         # Permanent entry (TTL <= 0)
