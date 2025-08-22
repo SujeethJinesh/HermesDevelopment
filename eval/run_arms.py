@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from env.hermetic import HermeticRun
 from eval._seed import compute_task_seed, generate_deterministic_id, seed_all
+from proto import baseline_pb2
+from transport.grpc_impl import GrpcTransport
 
 
 class ConfigParityError(Exception):
@@ -75,7 +77,7 @@ class ArmRunner:
             self.config = yaml.safe_load(f)
             f.seek(0)
             config_content = f.read()
-            self.config_hash = hashlib.sha256(config_content.encode()).hexdigest()[:16]
+            self.config_hash = hashlib.sha256(config_content.encode()).hexdigest()
 
         # Create run ID
         self.run_id = generate_deterministic_id(seed, f"arm_{arm}")
@@ -89,6 +91,7 @@ class ArmRunner:
         self.warmup_count = 5  # First 5 inferences are warmup
         self.inference_count = 0
         self.token_timings: List[float] = []
+        self.rtt_measurements: List[float] = []  # Track RTT for transport
 
     def _get_tasks(self) -> List[Dict[str, Any]]:
         """Get tasks to run.
@@ -115,6 +118,221 @@ class ArmRunner:
         # For now, return empty list as we're focusing on the harness
         return []
 
+    def _run_agents_grpc(
+        self, task: Dict[str, Any], task_seed: int, hermetic_run
+    ) -> Dict[str, Any]:
+        """Run agents via gRPC for Arms A and C.
+
+        Args:
+            task: Task dictionary
+            task_seed: Deterministic seed for this task
+            hermetic_run: HermeticRun instance with scratch path
+
+        Returns:
+            Metrics dictionary
+        """
+        # Socket path - use scratch directory for automatic cleanup
+        # This ensures the socket is removed when hermetic run completes
+        socket_path = hermetic_run.scratch_base / "grpc.sock"
+
+        # Ensure parent directory exists (scratch_base should already exist)
+        socket_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Create transport
+        transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
+
+        try:
+            # Start server
+            transport.start_server()
+            time.sleep(0.1)  # Give server time to start
+
+            # Connect client
+            transport.connect_client()
+
+            # Track metrics
+            total_bytes_in = 0
+            total_bytes_out = 0
+            message_paths = []
+            rtts = []
+
+            # Prepare task data
+            task_data = json.dumps(
+                {
+                    "task_id": task["task_id"],
+                    "repo": task.get("repo", "test-repo"),
+                    "file_path": task.get("file_path", "src/test.py"),
+                    "test_name": task.get("test_name", "test_function"),
+                    "description": task.get("description", "Fix the test"),
+                }
+            ).encode("utf-8")
+
+            # 1. Call Planner
+            if self.arm == "A":
+                # Arm A: JSON
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "planner",
+                    task_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
+                )
+                plan_data = json.loads(result.payload)["steps"] if result.ok else []
+            else:
+                # Arm C: Protobuf
+                plan_req = baseline_pb2.PlanRequest(
+                    task_id=task["task_id"],
+                    repo=task.get("repo", "test-repo"),
+                    file_path=task.get("file_path", "src/test.py"),
+                    test_name=task.get("test_name", "test_function"),
+                    description=task.get("description", "Fix the test"),
+                    seed=task_seed,
+                )
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "planner",
+                    plan_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
+                )
+                if result.ok:
+                    plan_resp = baseline_pb2.PlanResponse()
+                    plan_resp.ParseFromString(result.payload)
+                    plan_data = list(plan_resp.steps)
+                else:
+                    plan_data = []
+
+            total_bytes_in += result.bytes_in
+            total_bytes_out += result.bytes_out
+            message_paths.append(result.message_path_ms)
+            rtts.append(rtt)
+
+            # 2. Call Coder
+            if self.arm == "A":
+                # Arm A: JSON with plan steps
+                code_data = json.dumps(
+                    {
+                        "task_id": task["task_id"],
+                        "file_path": task.get("file_path", "src/test.py"),
+                        "plan_steps": plan_data,
+                    }
+                ).encode("utf-8")
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "coder",
+                    code_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
+                )
+                patch = json.loads(result.payload)["patch"] if result.ok else ""
+            else:
+                # Arm C: Protobuf
+                code_req = baseline_pb2.CodeRequest(
+                    task_id=task["task_id"],
+                    file_path=task.get("file_path", "src/test.py"),
+                    plan_steps=plan_data,
+                    seed=task_seed,
+                )
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "coder",
+                    code_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
+                )
+                if result.ok:
+                    code_resp = baseline_pb2.CodeResponse()
+                    code_resp.ParseFromString(result.payload)
+                    patch = code_resp.patch
+                else:
+                    patch = ""
+
+            total_bytes_in += result.bytes_in
+            total_bytes_out += result.bytes_out
+            message_paths.append(result.message_path_ms)
+            rtts.append(rtt)
+
+            # 3. Call Tester
+            if self.arm == "A":
+                # Arm A: JSON
+                test_data = json.dumps(
+                    {
+                        "task_id": task["task_id"],
+                        "test_name": task.get("test_name", "test_function"),
+                        "patch": patch,
+                    }
+                ).encode("utf-8")
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "tester",
+                    test_data,
+                    "application/json",
+                    f"trace_{task['task_id']}",
+                )
+                passed = json.loads(result.payload)["passed"] if result.ok else False
+            else:
+                # Arm C: Protobuf
+                test_req = baseline_pb2.TestRequest(
+                    task_id=task["task_id"],
+                    test_name=task.get("test_name", "test_function"),
+                    patch=patch,
+                    seed=task_seed,
+                )
+                result, rtt = transport.call_agent(
+                    task["task_id"],
+                    "tester",
+                    test_req.SerializeToString(),
+                    "application/x-protobuf",
+                    f"trace_{task['task_id']}",
+                )
+                if result.ok:
+                    test_resp = baseline_pb2.TestResponse()
+                    test_resp.ParseFromString(result.payload)
+                    passed = test_resp.passed
+                else:
+                    passed = False
+
+            total_bytes_in += result.bytes_in
+            total_bytes_out += result.bytes_out
+            message_paths.append(result.message_path_ms)
+            rtts.append(rtt)
+
+            # Store RTT measurements
+            self.rtt_measurements.extend(rtts)
+
+            # Write RTT data to file
+            rtt_file = self.output_dir / "transport_rtts.jsonl"
+            with open(rtt_file, "a") as f:
+                for r in rtts:
+                    f.write(json.dumps({"task_id": task["task_id"], "rtt_ms": r}) + "\n")
+
+            # Calculate e2e latency (sum of all message paths)
+            e2e_latency_ms = sum(message_paths)
+
+            # Calculate p95 message path
+            if message_paths:
+                message_path_p95 = sorted(message_paths)[int(len(message_paths) * 0.95)]
+            else:
+                message_path_p95 = 0
+
+            return {
+                "bytes_in": total_bytes_in,
+                "bytes_out": total_bytes_out,
+                "e2e_latency_ms": e2e_latency_ms,
+                "message_path_ms": message_path_p95,
+                "pass": passed,
+                "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
+                # Capture full manifest with scratch listing
+                "run_manifest": hermetic_run.emit_manifest(),
+                # Mock token counts for now (would come from actual LLM)
+                "tokens_out": 250 + (task_seed % 100),
+                "tokens_in": 200 + (task_seed % 80),
+                "prefill_tokens": 150 + (task_seed % 50),
+                "decode_tokens": 100 + (task_seed % 30),
+            }
+
+        finally:
+            transport.stop()
+
     def _run_task_hermetic(self, task: Dict[str, Any]) -> Dict[str, Any]:
         """Run a single task in hermetic environment.
 
@@ -138,7 +356,7 @@ class ArmRunner:
         metrics = {
             "task_id": task_id,
             "arm": self.arm,
-            "seed": task_seed,
+            "task_seed": task_seed,
             "hermetic": self.hermetic,
             "start_time": time.time(),
         }
@@ -148,32 +366,37 @@ class ArmRunner:
             seed_info = seed_all(task_seed, verbose=False)
             metrics["seed_info"] = seed_info
 
-            # Simulate task execution (would call actual arm here)
-            # For now, generate deterministic mock metrics
-            import random
+            # Run actual agents for Arms A and C
+            if self.arm in ["A", "C"]:
+                agent_metrics = self._run_agents_grpc(task, task_seed, hermetic_run)
+                metrics.update(agent_metrics)
+            else:
+                # Original mock for other arms
+                import random
 
-            # Mock inference timing (excluding warmup)
-            inference_time = 0.1 + random.random() * 0.05
-            self.inference_count += 1
-            if self.inference_count > self.warmup_count:
-                self.token_timings.append(inference_time)
+                # Mock inference timing (excluding warmup)
+                inference_time = 0.1 + random.random() * 0.05
+                self.inference_count += 1
+                if self.inference_count > self.warmup_count:
+                    self.token_timings.append(inference_time)
 
-            # Mock deterministic metrics based on seed
-            metrics.update(
-                {
-                    "bytes_out": 1000 + (task_seed % 500),
-                    "bytes_in": 800 + (task_seed % 300),
-                    "tokens_out": 250 + (task_seed % 100),
-                    "tokens_in": 200 + (task_seed % 80),
-                    "prefill_tokens": 150 + (task_seed % 50),
-                    "decode_tokens": 100 + (task_seed % 30),
-                    "e2e_latency_ms": 2000 + (task_seed % 1000),
-                    "message_path_ms": 5 + (task_seed % 3),
-                    "pass": (task_seed % 3) != 0,  # Deterministic pass/fail
-                    "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
-                    "run_manifest": hermetic_run.manifest,
-                }
-            )
+                # Mock deterministic metrics based on seed
+                metrics.update(
+                    {
+                        "bytes_out": 1000 + (task_seed % 500),
+                        "bytes_in": 800 + (task_seed % 300),
+                        "tokens_out": 250 + (task_seed % 100),
+                        "tokens_in": 200 + (task_seed % 80),
+                        "prefill_tokens": 150 + (task_seed % 50),
+                        "decode_tokens": 100 + (task_seed % 30),
+                        "e2e_latency_ms": 2000 + (task_seed % 1000),
+                        "message_path_ms": 5 + (task_seed % 3),
+                        "pass": (task_seed % 3) != 0,  # Deterministic pass/fail
+                        "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
+                        # Capture full manifest with scratch listing
+                        "run_manifest": hermetic_run.emit_manifest(),
+                    }
+                )
 
         # Add cleanup timing
         metrics["sandbox_cleanup_ms"] = hermetic_run.manifest["durations"].get("cleanup_ms", 0)
@@ -254,7 +477,8 @@ class ArmRunner:
         df["arm"] = self.arm
         df["run_id"] = self.run_id
         df["config_hash"] = self.config_hash
-        df["seed"] = self.seed
+        df["global_seed"] = self.seed  # Global seed used for the run
+        # task_seed is already preserved in each metric dict from _run_task
 
         # Sort columns for consistent output
         df = df.reindex(sorted(df.columns), axis=1)

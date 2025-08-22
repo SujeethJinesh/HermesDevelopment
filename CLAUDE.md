@@ -4,11 +4,86 @@ This document is the single source of truth for milestone evidence (artifacts, c
 
 ---
 
+## Evidence Pack (REQUIRED on every MVP task)
+
+### Diff summary
+`git diff --stat <base>..<head>` and either a short patch excerpt or a file list with 2–3 representative code snippets (no images).
+
+### Unit test output (raw text)
+Show the pytest header (platform, versions), the collected/passed counts, and timing.
+
+### Integration test logs (first 50 & last 50 lines)
+Include the command you ran; paste only the first/last 50 lines for each integration run.
+
+### Metrics JSON (one object) with keys (exact names):
+```json
+{
+  "bytes_per_solve": <number>,
+  "tokens_prefill": <number>,
+  "tokens_decode": <number>,
+  "e2e_latency_ms_p50": <number>,
+  "e2e_latency_ms_p95": <number>,
+  "message_path_ms_p95": <number>,
+  "mcp_deref_ms_p95": <number>,
+  "sae_accept_rate": <number>,
+  "rollback_ms_p95": <number>,
+  "pass_at_1": <number>
+}
+```
+Add task‑specific metrics (e.g., transport_rtt_ms_p50/p95, rpcs_count) when relevant.
+
+### Run manifest (one object)
+Model/tokenizer SHAs (nullable), quantization, base repo SHA, run repo SHA, config hash(es), lockfile SHA, OS/Python fingerprint, seed(s), venv hash, hermetic flag.
+
+### Hermetic confirmation
+Scratch dir path; `find` (or `ls -R`) before/after cleanup proving no residue; note whether UDS socket file(s) were cleaned.
+
+### Summary file location + full contents
+Paste the file that lives under `docs/MVP*/F*/T*_summary.md`.
+
+## Hermetic run defaults
+
+• Fresh worktree at base SHA, pinned venv keyed to requirements.lock, outbound network blocked.
+• Two identical runs with the same seed must yield identical summary.parquet rows (timestamps excluded).
+• Use `time.perf_counter_ns()`; exclude warmup where applicable (e.g., first 5 inferences).
+
+## Per‑milestone addenda
+
+### MVP‑0 F0.4 T0.4 (this PR): also include
+• `transport_rtts.jsonl` first/last 50 lines for Arms A and C.
+• Proof that gRPC uses UNIX domain sockets: code excerpt showing `unix://` address, server bind path, and cleanup.
+• RTT sample size (N RPCs) and warmup policy (what was excluded).
+• 10‑task E2E logs (head/tail) showing Planner→Coder→Tester chain completes.
+
+## Acceptance criteria
+
+• Evidence Pack presence is a hard gate; missing any required item → "Change Request".
+• Logs/snippets must be text; no screenshots.
+• All paths must be reproducible from repo root.
+
+## Run commands (example)
+
+```bash
+# Unit
+python -m pytest -q
+
+# Integration / microbench (example for F0.4)
+HERMES_HERMETIC=1 python -m pytest tests/test_transport_rtt.py -q -k rtt
+HERMES_HERMETIC=1 python -m pytest tests/integration/test_agents_e2e.py::TestE2E::test_ten_tasks -q -vv
+
+# Harness runs for A and C
+python -m eval.run_arms --arm A --seed 123 --gen_cfg configs/generation.yaml --hermetic on
+python -m eval.run_arms --arm C --seed 123 --gen_cfg configs/generation.yaml --hermetic on
+```
+
+---
+
 ## M0 — Evidence Pack (Environment, Clients, Harness)
 
 **Commit(s):** `6764bde`, branch: `sujinesh/M0_F03_T03`, PR: #3  
 **CI run(s):** GitHub Actions `ci.yml` for the commit above  
 **Changed paths (diffstat):** eval/run_arms.py, eval/_seed.py, tests/test_run_arms_parity.py, tests/integration/test_run_arms_determinism.py, docs/MVP0/**  
+**UDS Format:** Both `unix:path` and `unix:///absolute/path` are valid for Python gRPC (we use `unix:` with absolute paths)
 **Environment (dev & CI):**
 - Python: `3.11.6`; OS/Arch: `macOS-15.2-arm64-arm-64bit`  
 - Key tools: `pytest 7.4.3`, `ruff 0.1.6`, `black 23.11.0`
@@ -116,6 +191,8 @@ ARTIFACTS_DIR=artifacts/M{m} make test
 - [ ] Artifacts complete & reproducible
 - [ ] Invariants verified with pointers
 - [ ] SLOs met (or deltas explained)
+- [ ] Raw permalinks provided for all evidence (https://raw.githubusercontent.com/...)
+- [ ] Code excerpts pinned to commit SHA
 
 ---
 
