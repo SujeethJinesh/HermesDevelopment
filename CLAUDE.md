@@ -190,6 +190,8 @@ ARTIFACTS_DIR=artifacts/M{m} make test
 - [ ] Artifacts complete & reproducible
 - [ ] Invariants verified with pointers
 - [ ] SLOs met (or deltas explained)
+- [ ] Raw permalinks provided for all evidence (https://raw.githubusercontent.com/...)
+- [ ] Code excerpts pinned to commit SHA
 
 ---
 
