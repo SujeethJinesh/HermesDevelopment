@@ -83,6 +83,7 @@ python -m eval.run_arms --arm C --seed 123 --gen_cfg configs/generation.yaml --h
 **Commit(s):** `6764bde`, branch: `sujinesh/M0_F03_T03`, PR: #3  
 **CI run(s):** GitHub Actions `ci.yml` for the commit above  
 **Changed paths (diffstat):** eval/run_arms.py, eval/_seed.py, tests/test_run_arms_parity.py, tests/integration/test_run_arms_determinism.py, docs/MVP0/**  
+**UDS Format:** Both `unix:path` and `unix:///absolute/path` are valid for Python gRPC (we use `unix:` with absolute paths)
 **Environment (dev & CI):**
 - Python: `3.11.6`; OS/Arch: `macOS-15.2-arm64-arm-64bit`  
 - Key tools: `pytest 7.4.3`, `ruff 0.1.6`, `black 23.11.0`
