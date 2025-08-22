@@ -131,13 +131,12 @@ class ArmRunner:
         Returns:
             Metrics dictionary
         """
-        # Socket path - use /tmp for simplicity since UDS doesn't go over network
-        # This is still hermetic as it's local only
-        import tempfile
-
-        socket_dir = Path(tempfile.gettempdir()) / f"hermes_{task['task_id']}_{task_seed}"
-        socket_dir.mkdir(parents=True, exist_ok=True)
-        socket_path = socket_dir / "rpc.sock"
+        # Socket path - use scratch directory for automatic cleanup
+        # This ensures the socket is removed when hermetic run completes
+        socket_path = hermetic_run.scratch_base / "grpc.sock"
+        
+        # Ensure parent directory exists (scratch_base should already exist)
+        socket_path.parent.mkdir(parents=True, exist_ok=True)
 
         # Create transport
         transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)

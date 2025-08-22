@@ -225,15 +225,17 @@ class GrpcTransport:
         baseline_pb2_grpc.add_ArmServiceServicer_to_server(service, self.server)
         
         # Bind to UNIX domain socket (not TCP!)
-        self.server.add_insecure_port(f"unix://{self.socket_path}")
+        # Python gRPC requires unix: with single slash
+        self.server.add_insecure_port(f"unix:{self.socket_path}")
         self.server.start()
-        logger.info(f"gRPC server started on unix://{self.socket_path}")
+        logger.info(f"gRPC server started on unix:{self.socket_path}")
     
     def connect_client(self) -> None:
         """Connect client to UNIX domain socket."""
-        self.channel = grpc.insecure_channel(f"unix://{self.socket_path}")
+        # Python gRPC requires unix: with single slash
+        self.channel = grpc.insecure_channel(f"unix:{self.socket_path}")
         self.stub = baseline_pb2_grpc.ArmServiceStub(self.channel)
-        logger.info(f"gRPC client connected to unix://{self.socket_path}")
+        logger.info(f"gRPC client connected to unix:{self.socket_path}")
     
     def call_agent(
         self,
