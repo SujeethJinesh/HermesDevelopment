@@ -134,7 +134,7 @@ class ArmRunner:
         # Socket path - use scratch directory for automatic cleanup
         # This ensures the socket is removed when hermetic run completes
         socket_path = hermetic_run.scratch_base / "grpc.sock"
-        
+
         # Ensure parent directory exists (scratch_base should already exist)
         socket_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -321,7 +321,8 @@ class ArmRunner:
                 "message_path_ms": message_path_p95,
                 "pass": passed,
                 "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
-                "run_manifest": hermetic_run.emit_manifest(),  # Capture full manifest with scratch listing
+                # Capture full manifest with scratch listing
+                "run_manifest": hermetic_run.emit_manifest(),
                 # Mock token counts for now (would come from actual LLM)
                 "tokens_out": 250 + (task_seed % 100),
                 "tokens_in": 200 + (task_seed % 80),
@@ -392,7 +393,8 @@ class ArmRunner:
                         "message_path_ms": 5 + (task_seed % 3),
                         "pass": (task_seed % 3) != 0,  # Deterministic pass/fail
                         "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
-                        "run_manifest": hermetic_run.emit_manifest(),  # Capture full manifest with scratch listing
+                        # Capture full manifest with scratch listing
+                        "run_manifest": hermetic_run.emit_manifest(),
                     }
                 )
 

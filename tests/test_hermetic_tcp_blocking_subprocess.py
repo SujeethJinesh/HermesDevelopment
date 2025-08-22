@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 """Test that TCP is blocked under hermetic mode using subprocess."""
 
-import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,17 +21,17 @@ class TestHermeticTCPBlockingSubprocess:
         """Test that TCP connections are blocked when running in hermetic venv subprocess."""
         # Enable hermetic mode
         os.environ["HERMES_HERMETIC"] = "1"
-        
+
         # Create hermetic run
         run = HermeticRun(
             task_id="test-tcp-subprocess",
             seed=42,
             hermetic=True
         )
-        
+
         # Setup hermetic environment
         run.setup()
-        
+
         try:
             # Create test script
             test_script = run.scratch_base / "test_tcp.py"
@@ -68,7 +66,7 @@ except Exception as e:
 print("SUCCESS: All TCP operations properly blocked")
 sys.exit(0)
 """)
-            
+
             # Run script in hermetic venv
             result = subprocess.run(
                 [str(run.venv_path / "bin" / "python"), str(test_script)],
@@ -76,37 +74,37 @@ sys.exit(0)
                 text=True,
                 env={**os.environ, "HERMES_HERMETIC": "1"}
             )
-            
+
             print("=== Subprocess stdout ===")
             print(result.stdout)
             print("=== Subprocess stderr ===")
             print(result.stderr)
-            
+
             # Check that all operations were blocked
             assert result.returncode == 0, f"Test failed: {result.stdout} {result.stderr}"
             assert "PASS: TCP blocked" in result.stdout
             assert "PASS: TCP connection blocked" in result.stdout
             assert "PASS: DNS lookup blocked" in result.stdout
             assert "SUCCESS: All TCP operations properly blocked" in result.stdout
-            
+
         finally:
             run._cleanup()
-    
+
     def test_unix_socket_allowed_in_hermetic_subprocess(self):
         """Test that UNIX domain sockets work in hermetic venv subprocess."""
         # Enable hermetic mode
         os.environ["HERMES_HERMETIC"] = "1"
-        
+
         # Create hermetic run
         run = HermeticRun(
             task_id="test-uds-subprocess",
             seed=42,
             hermetic=True
         )
-        
+
         # Setup hermetic environment
         run.setup()
-        
+
         try:
             # Create test script
             test_script = run.scratch_base / "test_uds.py"
@@ -144,7 +142,7 @@ except Exception as e:
 print("SUCCESS: UNIX domain sockets work correctly")
 sys.exit(0)
 """)
-            
+
             # Run script in hermetic venv
             result = subprocess.run(
                 [str(run.venv_path / "bin" / "python"), str(test_script)],
@@ -152,18 +150,18 @@ sys.exit(0)
                 text=True,
                 env={**os.environ, "HERMES_HERMETIC": "1"}
             )
-            
+
             print("=== Subprocess stdout ===")
             print(result.stdout)
             print("=== Subprocess stderr ===")
             print(result.stderr)
-            
+
             # Check that UDS operations succeeded
             assert result.returncode == 0, f"Test failed: {result.stdout} {result.stderr}"
             assert "PASS: UNIX socket created" in result.stdout
             assert "PASS: UDS server bound" in result.stdout
             assert "SUCCESS: UNIX domain sockets work correctly" in result.stdout
-            
+
         finally:
             run._cleanup()
 
