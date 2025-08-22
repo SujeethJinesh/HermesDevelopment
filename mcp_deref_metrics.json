@@ -1,9 +1,11 @@
 {
-  "mcp_deref_ms_p50": 0.002,
-  "mcp_deref_ms_p95": 0.002,
-  "mcp_deref_ms_p99": 0.003,
-  "mcp_deref_ms_mean": 0.002,
-  "mcp_deref_ms_stdev": 0.0,
-  "mcp_deref_samples": 500,
-  "mcp_deref_warmup": 10
+  "mcp_deref_ms_p50": 0.003,
+  "mcp_deref_ms_p95": 0.004,
+  "mcp_deref_ms_p99": 0.004,
+  "mcp_deref_ms_mean": 0.003,
+  "mcp_deref_ms_stdev": 0.001,
+  "mcp_deref_samples": 2000,
+  "mcp_deref_warmup": 100,
+  "os_fingerprint": "Darwin-24.6.0-x86_64-Python3.11.6",
+  "storage_backend": "filesystem"
 }

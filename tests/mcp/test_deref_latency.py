@@ -16,97 +16,110 @@ class TestMCPDerefLatency:
     
     def test_deref_p95_requirement(self):
         """Test that deref p95 < 50ms on local storage."""
-        server = MCPServer()
-        client = MCPClient(server)
+        # Use filesystem-backed storage for realistic measurements
+        import tempfile
+        from pathlib import Path
         
-        # Number of samples (N >= 500 as required)
-        N = 500
-        warmup_runs = 10
-        
-        # Prepare test data with varying sizes
-        test_refs = []
-        for i in range(100):
-            ref = f"mcp://perf/item_{i}"
-            # Vary data size: 100 bytes to 10KB
-            size = 100 + (i * 100)
-            data = b"x" * size
-            client.put(ref, data, ttl_s=3600)
-            test_refs.append(ref)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            storage_path = Path(tmpdir)
+            server = MCPServer(storage_path=storage_path)  # Enable filesystem storage
+            client = MCPClient(server)
             
-        # Warmup runs (excluded from metrics)
-        print("\nWarming up...")
-        for _ in range(warmup_runs):
-            for ref in test_refs[:10]:  # Just use first 10 for warmup
-                client.resolve(ref)
+            # Number of samples (N >= 2000 as required by reviewer)
+            N = 2000
+            warmup_runs = 100
+        
+            # Prepare test data with varying sizes
+            test_refs = []
+            for i in range(100):
+                ref = f"mcp://perf/item_{i}"
+                # Vary data size: 100 bytes to 10KB
+                size = 100 + (i * 100)
+                data = b"x" * size
+                client.put(ref, data, ttl_s=3600)
+                test_refs.append(ref)
                 
-        # Clear any warmup timings
-        client._deref_times_ms = []
-        
-        # Actual benchmark runs
-        print(f"Running {N} deref operations...")
-        deref_times_ms = []
-        
-        for run in range(N):
-            # Pick a random-ish ref
-            ref = test_refs[run % len(test_refs)]
+            # Force flush to disk
+            server._persist_to_disk()
             
-            # Time the deref operation
-            start_ns = time.perf_counter_ns()
-            data = client.resolve(ref)
-            end_ns = time.perf_counter_ns()
+            # Warmup runs (excluded from metrics)
+            print("\nWarming up...")
+            for _ in range(warmup_runs):
+                for ref in test_refs[:10]:  # Just use first 10 for warmup
+                    client.resolve(ref)
+                    
+            # Clear any warmup timings
+            client._deref_times_ms = []
             
-            assert data is not None, f"Failed to resolve {ref}"
+            # Actual benchmark runs
+            print(f"Running {N} deref operations...")
+            deref_times_ms = []
             
-            # Record timing in milliseconds
-            deref_ms = (end_ns - start_ns) / 1e6
-            deref_times_ms.append(deref_ms)
+            for run in range(N):
+                # Pick a random-ish ref
+                ref = test_refs[run % len(test_refs)]
+                
+                # Time the deref operation
+                start_ns = time.perf_counter_ns()
+                data = client.resolve(ref)
+                end_ns = time.perf_counter_ns()
+                
+                assert data is not None, f"Failed to resolve {ref}"
+                
+                # Record timing in milliseconds
+                deref_ms = (end_ns - start_ns) / 1e6
+                deref_times_ms.append(deref_ms)
             
-        # Calculate percentiles
-        sorted_times = sorted(deref_times_ms)
-        p50_idx = int(len(sorted_times) * 0.50)
-        p95_idx = int(len(sorted_times) * 0.95)
-        p99_idx = int(len(sorted_times) * 0.99)
-        
-        p50 = sorted_times[min(p50_idx, len(sorted_times) - 1)]
-        p95 = sorted_times[min(p95_idx, len(sorted_times) - 1)]
-        p99 = sorted_times[min(p99_idx, len(sorted_times) - 1)]
-        
-        mean = statistics.mean(deref_times_ms)
-        stdev = statistics.stdev(deref_times_ms) if len(deref_times_ms) > 1 else 0
-        
-        # Print results
-        print(f"\n=== MCP Deref Latency Results ===")
-        print(f"Samples: {N} (warmup: {warmup_runs} excluded)")
-        print(f"Mean: {mean:.3f}ms")
-        print(f"Stdev: {stdev:.3f}ms")
-        print(f"Min: {min(deref_times_ms):.3f}ms")
-        print(f"Max: {max(deref_times_ms):.3f}ms")
-        print(f"P50: {p50:.3f}ms")
-        print(f"P95: {p95:.3f}ms")
-        print(f"P99: {p99:.3f}ms")
-        
-        # Generate metrics for evidence pack
-        metrics = {
-            "mcp_deref_ms_p50": round(p50, 3),
-            "mcp_deref_ms_p95": round(p95, 3),
-            "mcp_deref_ms_p99": round(p99, 3),
-            "mcp_deref_ms_mean": round(mean, 3),
-            "mcp_deref_ms_stdev": round(stdev, 3),
-            "mcp_deref_samples": N,
-            "mcp_deref_warmup": warmup_runs,
-        }
-        
-        # Save metrics to file for evidence pack
-        with open("mcp_deref_metrics.json", "w") as f:
-            json.dump(metrics, f, indent=2)
+            # Calculate percentiles
+            sorted_times = sorted(deref_times_ms)
+            p50_idx = int(len(sorted_times) * 0.50)
+            p95_idx = int(len(sorted_times) * 0.95)
+            p99_idx = int(len(sorted_times) * 0.99)
             
-        # Assert p95 < 50ms requirement
-        assert p95 < 50.0, f"Deref p95 {p95:.3f}ms exceeds 50ms limit"
-        
-        # Also check using client's built-in p95 calculation
-        client_p95 = client.get_deref_p95()
-        assert client_p95 is not None
-        print(f"Client-reported P95: {client_p95:.3f}ms")
+            p50 = sorted_times[min(p50_idx, len(sorted_times) - 1)]
+            p95 = sorted_times[min(p95_idx, len(sorted_times) - 1)]
+            p99 = sorted_times[min(p99_idx, len(sorted_times) - 1)]
+            
+            mean = statistics.mean(deref_times_ms)
+            stdev = statistics.stdev(deref_times_ms) if len(deref_times_ms) > 1 else 0
+            
+            # Print results
+            print(f"\n=== MCP Deref Latency Results (Filesystem-backed) ===")
+            print(f"Storage: {storage_path}")
+            print(f"Samples: {N} (warmup: {warmup_runs} excluded)")
+            print(f"Mean: {mean:.3f}ms")
+            print(f"Stdev: {stdev:.3f}ms")
+            print(f"Min: {min(deref_times_ms):.3f}ms")
+            print(f"Max: {max(deref_times_ms):.3f}ms")
+            print(f"P50: {p50:.3f}ms")
+            print(f"P95: {p95:.3f}ms")
+            print(f"P99: {p99:.3f}ms")
+            
+            # Generate metrics for evidence pack
+            import platform
+            metrics = {
+                "mcp_deref_ms_p50": round(p50, 3),
+                "mcp_deref_ms_p95": round(p95, 3),
+                "mcp_deref_ms_p99": round(p99, 3),
+                "mcp_deref_ms_mean": round(mean, 3),
+                "mcp_deref_ms_stdev": round(stdev, 3),
+                "mcp_deref_samples": N,
+                "mcp_deref_warmup": warmup_runs,
+                "os_fingerprint": f"{platform.system()}-{platform.release()}-{platform.machine()}-Python{platform.python_version()}",
+                "storage_backend": "filesystem",
+            }
+            
+            # Save metrics to file for evidence pack
+            with open("mcp_deref_metrics.json", "w") as f:
+                json.dump(metrics, f, indent=2)
+                
+            # Assert p95 < 50ms requirement
+            assert p95 < 50.0, f"Deref p95 {p95:.3f}ms exceeds 50ms limit"
+            
+            # Also check using client's built-in p95 calculation
+            client_p95 = client.get_deref_p95()
+            assert client_p95 is not None
+            print(f"Client-reported P95: {client_p95:.3f}ms")
         
     def test_deref_with_different_sizes(self):
         """Test deref latency across different payload sizes."""
