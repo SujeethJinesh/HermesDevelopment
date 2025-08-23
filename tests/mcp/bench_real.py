@@ -13,20 +13,20 @@ from pathlib import Path
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-from mcp.server import MCPServer
 from mcp.client import MCPClient
+from mcp.server import MCPServer
 
 
 def run_real_benchmark():
     """Run actual benchmark and measure real latencies."""
     print("Starting real MCP benchmark...")
-    
+
     # Create temp directory for storage
-    with tempfile.TemporaryDirectory() as tmpdir:
+    with tempfile.TemporaryDirectory():
         # Create server - memory only for speed
         server = MCPServer()  # No storage_path = memory only
         client = MCPClient(server)
-        
+
         # Prepare test data
         print("Preparing test data...")
         test_refs = []
@@ -39,7 +39,7 @@ def run_real_benchmark():
                 print(f"Failed to put {ref}: {msg}")
                 return
             test_refs.append(ref)
-        
+
         # Warmup
         print("Warming up (100 ops)...")
         for _ in range(100):
@@ -47,25 +47,25 @@ def run_real_benchmark():
             if data is None:
                 print("ERROR: Warmup failed")
                 return
-        
+
         # Benchmark
-        N = 2000
-        print(f"Running {N} deref operations...")
+        n = 2000
+        print(f"Running {n} deref operations...")
         times_ms = []
-        
-        for i in range(N):
+
+        for i in range(n):
             ref = test_refs[i % len(test_refs)]
-            
+
             start_ns = time.perf_counter_ns()
             data = client.resolve(ref)
             end_ns = time.perf_counter_ns()
-            
+
             if data is None:
                 print(f"ERROR: Failed to resolve {ref}")
                 continue
-                
+
             times_ms.append((end_ns - start_ns) / 1e6)
-        
+
         # Calculate REAL stats
         times_ms.sort()
         p50 = times_ms[int(len(times_ms) * 0.50)]
@@ -73,8 +73,8 @@ def run_real_benchmark():
         p99 = times_ms[int(len(times_ms) * 0.99)]
         mean = statistics.mean(times_ms)
         stdev = statistics.stdev(times_ms)
-        
-        print(f"\n=== REAL Benchmark Results ===")
+
+        print("\n=== REAL Benchmark Results ===")
         print(f"  Samples: {len(times_ms)}")
         print(f"  Mean: {mean:.3f}ms")
         print(f"  Stdev: {stdev:.3f}ms")
@@ -83,7 +83,7 @@ def run_real_benchmark():
         print(f"  P50: {p50:.3f}ms")
         print(f"  P95: {p95:.3f}ms")
         print(f"  P99: {p99:.3f}ms")
-        
+
         # Write REAL metrics (not fabricated!)
         metrics = {
             "mcp_deref_ms_p50": round(p50, 3),
@@ -93,24 +93,27 @@ def run_real_benchmark():
             "mcp_deref_ms_stdev": round(stdev, 3),
             "mcp_deref_samples": len(times_ms),
             "mcp_deref_warmup": 100,
-            "os_fingerprint": f"{platform.system()}-{platform.release()}-{platform.machine()}-Python{platform.python_version()}",
+            "os_fingerprint": (
+                f"{platform.system()}-{platform.release()}-"
+                f"{platform.machine()}-Python{platform.python_version()}"
+            ),
             "storage_backend": "memory_only",  # No disk persistence for speed
-            "note": "Real measured latencies from in-memory operations"
+            "note": "Real measured latencies from in-memory operations",
         }
-        
+
         # Ensure runs/mcp directory exists
         os.makedirs("runs/mcp", exist_ok=True)
-        
+
         # Save metrics
         with open("runs/mcp/metrics.json", "w") as f:
             json.dump(metrics, f, indent=2)
-        
-        print(f"\nMetrics saved to runs/mcp/metrics.json")
-        
+
+        print("\nMetrics saved to runs/mcp/metrics.json")
+
         # Verify p95 < 50ms requirement
         assert p95 < 50.0, f"P95 {p95:.3f}ms exceeds 50ms requirement"
         print(f"✓ P95 requirement met ({p95:.3f}ms < 50ms)")
-        
+
         return metrics
 
 
