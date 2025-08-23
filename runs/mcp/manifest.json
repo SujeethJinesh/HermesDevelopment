@@ -3,7 +3,7 @@
   "tokenizer_sha": null,
   "quantization": null,
   "base_repo_sha": "81736b161c37098e2e0e24dde0c0bfe37c879e96",
-  "run_repo_sha": "3a6250b9d5914eb14973fdc0be26efb30a912fb3",
+  "run_repo_sha": "146e18f216a5675d8ddb964edc0ce62941ae2e1f",
   "config_hash": "7a4f3e2b9c8d5e6f1a2b3c4d5e6f7a8b9c0d1e2f",
   "lockfile_sha": "adfea62413f335891ba622fa49da8a99385f008165a6c074127405798dccabc4",
   "os_fingerprint": "Darwin-24.6.0-x86_64",
