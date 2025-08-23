@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform darwin -- Python 3.11.6, pytest-8.4.1, pluggy-1.6.0
+rootdir: /Users/sujeethjinesh/Desktop/HermesDevelopment
+configfile: pyproject.toml
+plugins: asyncio-1.1.0, anyio-4.9.0, langsmith-0.4.1, cov-6.2.1
+asyncio: mode=Mode.STRICT, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 1 item
+
+tests/mcp/test_deref_latency.py 
+Warming up...
+Running 500 deref operations...
+
+=== MCP Deref Latency Results ===
+Samples: 500 (warmup: 10 excluded)
+Mean: 0.002ms
+Stdev: 0.000ms
+Min: 0.001ms
+Max: 0.004ms
+P50: 0.002ms
+P95: 0.002ms
+P99: 0.003ms
+Client-reported P95: 0.001ms
+.
+
+============================== 1 passed in 0.02s ===============================

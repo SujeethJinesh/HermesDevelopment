@@ -4,11 +4,14 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from threading import Lock
 from typing import Dict, Optional, Tuple
+from urllib.parse import urlparse
 
 logger = logging.getLogger(__name__)
 
@@ -20,18 +23,22 @@ class AnchorEntry:
     ref: str
     data: bytes
     ttl_s: int
-    created_at: float
+    created_at: float  # Wall time for human-readable metadata
     namespace: str = "default"
     sha256: str = field(init=False)
+    created_at_monotonic: float = field(init=False)  # Monotonic for TTL calculations
 
     def __post_init__(self):
         self.sha256 = hashlib.sha256(self.data).hexdigest()
+        # Store both monotonic and wall time
+        if not hasattr(self, 'created_at_monotonic'):
+            self.created_at_monotonic = time.monotonic()
 
     def is_expired(self) -> bool:
-        """Check if this entry has expired."""
+        """Check if this entry has expired using monotonic time."""
         if self.ttl_s <= 0:  # Permanent if TTL <= 0
             return False
-        return time.time() > (self.created_at + self.ttl_s)
+        return time.monotonic() > (self.created_at_monotonic + self.ttl_s)
 
     @property
     def size_bytes(self) -> int:
@@ -103,6 +110,14 @@ class MCPServer:
                         created_at=info["created_at"],
                         namespace=info.get("namespace", "default"),
                     )
+                    # Restore monotonic time if available, else compute from wall time
+                    if "created_at_monotonic" in info:
+                        entry.created_at_monotonic = info["created_at_monotonic"]
+                    else:
+                        # Estimate monotonic based on elapsed wall time
+                        elapsed = time.time() - info["created_at"]
+                        entry.created_at_monotonic = time.monotonic() - elapsed
+                    
                     if not entry.is_expired():
                         self._anchors[ref] = entry
                         self._stats["bytes_stored"] += entry.size_bytes
@@ -110,31 +125,99 @@ class MCPServer:
             logger.warning(f"Failed to load persisted anchors: {e}")
 
     def _persist_to_disk(self):
-        """Persist current anchors to disk."""
+        """Persist current anchors to disk with atomic writes."""
         if not self.storage_path:
             return
 
+        # Take snapshot under lock
+        with self._lock:
+            snapshot = {
+                ref: entry for ref, entry in self._anchors.items() 
+                if not entry.is_expired()
+            }
+        
+        # Perform I/O outside lock
         metadata = {}
-        for ref, entry in self._anchors.items():
-            if not entry.is_expired():
-                # Write data file
-                data_file = self.storage_path / entry.sha256
-                if not data_file.exists():
-                    with open(data_file, "wb") as f:
-                        f.write(entry.data)
+        for ref, entry in snapshot.items():
+            # Write data file atomically
+            data_file = self.storage_path / entry.sha256
+            if not data_file.exists():
+                self._atomic_write(data_file, entry.data)
 
-                # Add to metadata
-                metadata[ref] = {
-                    "sha256": entry.sha256,
-                    "ttl_s": entry.ttl_s,
-                    "created_at": entry.created_at,
-                    "namespace": entry.namespace,
-                }
+            # Add to metadata
+            metadata[ref] = {
+                "sha256": entry.sha256,
+                "ttl_s": entry.ttl_s,
+                "created_at": entry.created_at,
+                "created_at_monotonic": entry.created_at_monotonic,
+                "namespace": entry.namespace,
+            }
 
-        # Write metadata
+        # Write metadata atomically
         metadata_file = self.storage_path / "metadata.json"
-        with open(metadata_file, "w") as f:
-            json.dump(metadata, f, indent=2)
+        self._atomic_write(metadata_file, json.dumps(metadata, indent=2).encode())
+    
+    def _atomic_write(self, path: Path, data: bytes):
+        """Write data atomically using temp file + fsync + rename."""
+        # Write to temp file
+        with tempfile.NamedTemporaryFile(
+            mode='wb',
+            dir=path.parent,
+            delete=False
+        ) as tmp:
+            tmp.write(data)
+            tmp.flush()
+            os.fsync(tmp.fileno())
+            tmp_path = Path(tmp.name)
+        
+        # Atomic rename
+        tmp_path.rename(path)
+        
+        # Sync directory to ensure rename is persisted
+        dir_fd = os.open(str(path.parent), os.O_RDONLY)
+        try:
+            os.fsync(dir_fd)
+        finally:
+            os.close(dir_fd)
+    
+    def _infer_ttl_from_ref(self, ref: str) -> Optional[int]:
+        """Infer TTL from ref using strict parsing.
+        
+        Args:
+            ref: Reference like mcp://<type>/path
+            
+        Returns:
+            TTL in seconds or None if invalid format
+        """
+        try:
+            parsed = urlparse(ref)
+            if parsed.scheme != 'mcp':
+                return None
+            
+            # Extract type from path
+            path_parts = parsed.path.lstrip('/').split('/')
+            if not path_parts or not path_parts[0]:
+                # Use netloc as type if no path (e.g., mcp://logs)
+                ref_type = parsed.netloc
+            else:
+                # Use first path component as type
+                ref_type = path_parts[0] if not parsed.netloc else parsed.netloc
+            
+            # Map type to TTL
+            type_to_ttl = {
+                'logs': self.DEFAULT_TTLS['logs'],
+                'log': self.DEFAULT_TTLS['logs'],
+                'diffs': self.DEFAULT_TTLS['diffs'],
+                'diff': self.DEFAULT_TTLS['diffs'],
+                'repo': self.DEFAULT_TTLS['repo'],
+                'sha': self.DEFAULT_TTLS['repo'],
+                'sha256': self.DEFAULT_TTLS['repo'],
+            }
+            
+            return type_to_ttl.get(ref_type, self.DEFAULT_TTLS['default'])
+            
+        except Exception:
+            return None
 
     def put(
         self, ref: str, data: bytes, ttl_s: Optional[int] = None, namespace: str = "default"
@@ -150,17 +233,11 @@ class MCPServer:
         Returns:
             (success, message)
         """
-        # Determine TTL
+        # Determine TTL using strict parsing
         if ttl_s is None:
-            # Infer from ref pattern
-            if "logs" in ref:
-                ttl_s = self.DEFAULT_TTLS["logs"]
-            elif "diff" in ref:
-                ttl_s = self.DEFAULT_TTLS["diffs"]
-            elif "repo" in ref or "sha" in ref:
-                ttl_s = self.DEFAULT_TTLS["repo"]
-            else:
-                ttl_s = self.DEFAULT_TTLS["default"]
+            ttl_s = self._infer_ttl_from_ref(ref)
+            if ttl_s is None:
+                return False, f"Invalid ref format: {ref}. Expected mcp://<type>/..."
 
         with self._lock:
             # Check size limits
@@ -174,10 +251,15 @@ class MCPServer:
             if current_size + new_size > self.max_size_bytes:
                 return False, f"Storage limit exceeded ({self.max_size_bytes} bytes)"
 
-            # Create entry
+            # Create entry with both wall and monotonic time
             entry = AnchorEntry(
-                ref=ref, data=data, ttl_s=ttl_s, created_at=time.time(), namespace=namespace
+                ref=ref, 
+                data=data, 
+                ttl_s=ttl_s, 
+                created_at=time.time(),  # Wall time for metadata
+                namespace=namespace
             )
+            # Monotonic time is set in __post_init__
 
             # Update storage
             if ref in self._anchors:

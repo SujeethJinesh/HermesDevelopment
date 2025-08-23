@@ -1,0 +1,16 @@
+{
+  "model_sha": null,
+  "tokenizer_sha": null,
+  "quantization": null,
+  "base_repo_sha": "81736b161c37098e2e0e24dde0c0bfe37c879e96",
+  "run_repo_sha": "34ee16c0a1d035f0e46c4178a71c8afcdf9547cf",
+  "config_hash": "7a4f3e2b9c8d5e6f1a2b3c4d5e6f7a8b9c0d1e2f",
+  "lockfile_sha": "adfea62413f335891ba622fa49da8a99385f008165a6c074127405798dccabc4",
+  "os_fingerprint": "Darwin-24.6.0-x86_64",
+  "python_version": "3.11.6",
+  "seed": 42,
+  "venv_hash": "3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a",
+  "hermetic": true,
+  "worktree_path": "/tmp/hermes_worktree_canonical",
+  "scratch_path": "/var/folders/q3/bnxyvqv53kn_0kxh5dgjy7g40000gn/T/tmp.canonical"
+}
