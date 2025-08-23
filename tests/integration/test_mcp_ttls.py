@@ -40,8 +40,8 @@ class TestMCPTTLIntegration:
             # Should still be available
             assert client.resolve(log_ref) == log_data
             
-        # Simulate time passing (25 hours)
-        with patch('time.time', return_value=time.time() + 25 * 3600):
+        # Simulate time passing (25 hours) - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 25 * 3600):
             # Should be expired
             assert client.resolve(log_ref) is None
             
@@ -65,13 +65,13 @@ class TestMCPTTLIntegration:
         # Should resolve immediately
         assert client.resolve(diff_ref) == diff_data
         
-        # Simulate time passing (6 days)
-        with patch('time.time', return_value=time.time() + 6 * 24 * 3600):
+        # Simulate time passing (6 days) - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 6 * 24 * 3600):
             # Should still be available
             assert client.resolve(diff_ref) == diff_data
             
-        # Simulate time passing (8 days)
-        with patch('time.time', return_value=time.time() + 8 * 24 * 3600):
+        # Simulate time passing (8 days) - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 8 * 24 * 3600):
             # Should be expired
             assert client.resolve(diff_ref) is None
             
@@ -99,8 +99,8 @@ class TestMCPTTLIntegration:
         for ref, data, _ in entries:
             assert client.resolve(ref) == data
             
-        # After 2 minutes
-        with patch('time.time', return_value=time.time() + 120):
+        # After 2 minutes - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 120):
             # Temp (1 min) should be expired
             assert client.resolve("mcp://temp/data") is None
             # Others should still exist
@@ -108,8 +108,8 @@ class TestMCPTTLIntegration:
             assert client.resolve("mcp://cache/item") is not None
             assert client.resolve("mcp://repo/sha123") is not None
             
-        # After 10 minutes
-        with patch('time.time', return_value=time.time() + 600):
+        # After 10 minutes - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 600):
             # Cache (5 min) should also be expired
             assert client.resolve("mcp://cache/item") is None
             # Long-lived entries still exist
@@ -117,8 +117,8 @@ class TestMCPTTLIntegration:
             assert client.resolve("mcp://diffs/test.diff") is not None
             assert client.resolve("mcp://repo/sha123") is not None
             
-        # After 1 year (permanent should still exist)
-        with patch('time.time', return_value=time.time() + 365 * 24 * 3600):
+        # After 1 year (permanent should still exist) - patch monotonic time
+        with patch('time.monotonic', return_value=time.monotonic() + 365 * 24 * 3600):
             # Only permanent entry remains
             assert client.resolve("mcp://repo/sha123") == b"repo"
             assert client.resolve("mcp://logs/test.log") is None
