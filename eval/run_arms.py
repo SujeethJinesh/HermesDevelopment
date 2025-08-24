@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from env.hermetic import HermeticRun
 from eval._seed import compute_task_seed, generate_deterministic_id, seed_all
+from eval.datasets.swebench_lite import SWEBenchLiteLoader
+from eval.swebench_bridge import SWEBenchBridge
 from proto import baseline_pb2
 from transport.grpc_impl import GrpcTransport
 
@@ -43,6 +45,11 @@ class ArmRunner:
         gen_cfg_path: str,
         hermetic: bool = True,
         toy_tasks: Optional[int] = None,
+        smoke_tasks: Optional[int] = None,
+        dataset: Optional[str] = None,
+        split: Optional[str] = None,
+        smoke: Optional[int] = None,
+        slice50: bool = False,
     ):
         """Initialize arm runner.
 
@@ -60,6 +67,11 @@ class ArmRunner:
         self.seed = seed
         self.hermetic = hermetic
         self.toy_tasks = toy_tasks
+        self.smoke_tasks = smoke_tasks
+        self.dataset = dataset
+        self.split = split or "test"
+        self.smoke = smoke
+        self.slice50 = slice50
 
         # Enforce config parity - only accept the canonical config
         if gen_cfg_path != "configs/generation.yaml":
@@ -99,23 +111,31 @@ class ArmRunner:
         Returns:
             List of task dictionaries
         """
-        if self.toy_tasks:
-            # Create toy tasks for testing
-            tasks = []
-            for i in range(self.toy_tasks):
-                tasks.append(
-                    {
-                        "task_id": f"toy-{i:03d}",
-                        "repo": "test-repo",
-                        "file_path": f"src/test_{i}.py",
-                        "test_name": f"test_function_{i}",
-                        "description": f"Toy task {i} for testing",
-                    }
-                )
-            return tasks
-
-        # Would load real SWE-bench tasks here
-        # For now, return empty list as we're focusing on the harness
+        # Check for banned toy/smoke tasks
+        if self.toy_tasks or self.smoke_tasks:
+            raise ValueError(
+                "Toy/smoke tasks are forbidden. Use --dataset swebench_lite instead."
+            )
+        
+        # Load SWE-bench Lite if specified
+        if self.dataset == "swebench_lite":
+            loader = SWEBenchLiteLoader()
+            
+            if self.slice50:
+                # Pre-registered 50 instances for MVP-3
+                instances = loader.get_slice50(self.split)
+            elif self.smoke:
+                # Deterministic smoke selection
+                instances = loader.get_smoke20(self.split, seed=self.seed)[:self.smoke]
+            else:
+                # Full split
+                dataset = loader.load_split(self.split)
+                instances = list(dataset)
+            
+            # Convert to task format
+            return [loader.to_task_format(inst) for inst in instances]
+        
+        # No dataset specified
         return []
 
     def _run_agents_grpc(
@@ -170,6 +190,9 @@ class ArmRunner:
                     "description": task.get("description", "Fix the test"),
                 }
             ).encode("utf-8")
+
+            # Track E2E timing with monotonic clock
+            e2e_start_ns = time.perf_counter_ns()
 
             # 1. Call Planner
             if self.arm == "A":
@@ -326,14 +349,24 @@ class ArmRunner:
                 for r in rtts:
                     f.write(json.dumps({"task_id": task["task_id"], "rtt_ms": r}) + "\n")
 
-            # Calculate e2e latency (sum of all message paths)
-            e2e_latency_ms = sum(message_paths)
+            # Calculate e2e latency properly with monotonic clock
+            # E2E = total time from first request to last response
+            e2e_end_ns = time.perf_counter_ns()
+            e2e_latency_ms = (e2e_end_ns - e2e_start_ns) / 1_000_000  # Convert ns to ms
 
-            # Calculate p95 message path
+            # Calculate p95 message path (processing time inside agents)
             if message_paths:
-                message_path_p95 = sorted(message_paths)[int(len(message_paths) * 0.95)]
+                # Filter out zeros and calculate p95
+                valid_paths = [p for p in message_paths if p > 0]
+                if valid_paths:
+                    sorted_paths = sorted(valid_paths)
+                    p95_idx = min(int(len(sorted_paths) * 0.95), len(sorted_paths) - 1)
+                    message_path_p95 = sorted_paths[p95_idx]
+                else:
+                    # All zeros - use minimum measurable time
+                    message_path_p95 = 0.001  # 1 microsecond minimum
             else:
-                message_path_p95 = 0
+                message_path_p95 = 0.001
 
             return {
                 "bytes_in": total_bytes_in,
@@ -597,7 +630,33 @@ def main():
         default="on",
         help="Enable hermetic execution (default: on)",
     )
-    parser.add_argument("--toy", type=int, metavar="N", help="Run N toy tasks for testing")
+    
+    # Dataset arguments (replacing toy/smoke)
+    parser.add_argument(
+        "--dataset",
+        choices=["swebench_lite"],
+        help="Dataset to use (only swebench_lite allowed)",
+    )
+    parser.add_argument(
+        "--split",
+        choices=["dev", "test"],
+        default="test",
+        help="Dataset split to use (default: test)",
+    )
+    parser.add_argument(
+        "--smoke",
+        type=int,
+        metavar="N",
+        help="Run first N tasks from smoke-20 selection",
+    )
+    parser.add_argument(
+        "--slice50",
+        action="store_true",
+        help="Use pre-registered 50 instances for MVP-3",
+    )
+    
+    # Deprecated arguments (will raise error)
+    parser.add_argument("--toy", type=int, help=argparse.SUPPRESS)
 
     # Parse arguments
     args = parser.parse_args()
@@ -609,6 +668,11 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
+    # Check for banned toy argument
+    if hasattr(args, 'toy') and args.toy:
+        print("ERROR: --toy is banned. Use --dataset swebench_lite instead.", file=sys.stderr)
+        return 1
+    
     # Create and run evaluation
     try:
         runner = ArmRunner(
@@ -616,7 +680,10 @@ def main():
             seed=args.seed,
             gen_cfg_path=args.gen_cfg,
             hermetic=(args.hermetic == "on"),
-            toy_tasks=args.toy,
+            dataset=args.dataset,
+            split=args.split,
+            smoke=args.smoke,
+            slice50=args.slice50,
         )
         runner.run()
         return 0

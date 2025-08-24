@@ -1,0 +1,10 @@
+{
+  "dataset_name": "princeton-nlp/SWE-bench_Lite",
+  "revision": "b8b14b3",
+  "local_path": "data/swebench_lite/b8b14b3",
+  "splits": {
+    "dev": 23,
+    "test": 300
+  },
+  "sha256_dir": "5dd1b32f61be3eddf607b9ed443ee7f3f9308838fa892ad437b4028402fc68e1"
+}

@@ -1,0 +1,37 @@
+name: Ban Toy Datasets
+
+on:
+  push:
+    branches: [ main, sujinesh/* ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check-toy-datasets:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Check for banned toy/smoke patterns
+      run: |
+        echo "Checking for banned toy/smoke patterns in code..."
+        
+        # Check for toy/smoke in eval, tests, scripts (excluding comments)
+        if grep -r --include="*.py" -E "(toy-[0-9]|smoke-[0-9])" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#"; then
+          echo "ERROR: Found banned toy/smoke patterns in code"
+          exit 1
+        fi
+        
+        # Check for toy task generation
+        if grep -r --include="*.py" "toy_tasks" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "# Deprecated"; then
+          echo "ERROR: Found toy_tasks references"
+          exit 1
+        fi
+        
+        # Check for smoke task generation (old style)
+        if grep -r --include="*.py" "smoke_tasks" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "# Deprecated"; then
+          echo "ERROR: Found smoke_tasks references"
+          exit 1
+        fi
+        
+        echo "✅ No banned toy/smoke patterns found"

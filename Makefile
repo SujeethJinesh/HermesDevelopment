@@ -1,6 +1,12 @@
-.PHONY: lint fmt test
+.PHONY: lint fmt test prepare-swebench check-toy run-c run-pm clean
 
-lint:
+# Check for banned toy datasets (exclude legitimate smoke-20 references)
+check-toy:
+	@echo "Checking for banned toy/smoke patterns..."
+	@! grep -r --include="*.py" -E "(\btoy-[0-9]|\bsmoke-[0-9])" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "smoke-20" || (echo "ERROR: Found banned patterns" && false)
+	@echo "✅ No banned patterns found"
+
+lint: check-toy
 	ruff check eval tests
 	black --check eval tests
 
@@ -16,3 +22,21 @@ test:
 	else \
 		pytest -q; \
 	fi
+
+# Prepare SWE-bench Lite data (run once)
+prepare-swebench:
+	bash scripts/prepare_swebench.sh
+
+# Run Arms for evaluation
+run-c:
+	HERMES_HERMETIC=1 python -m eval.run_arms --arm C --dataset swebench_lite --split test --smoke 20 --seed 123
+
+run-pm:
+	HERMES_HERMETIC=1 python -m eval.run_arms --arm PM --dataset swebench_lite --split test --smoke 20 --seed 123
+
+# Clean temporary files
+clean:
+	rm -rf scratch/
+	rm -rf runs/
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.pyc" -delete

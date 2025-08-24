@@ -24,12 +24,26 @@ class PMAgent:
         config = config or {}
         mcp_config = config.get("mcp", {})
         self.inline_max_bytes = mcp_config.get("inline_max_bytes", 32768)  # 32KB default
+        
+        # Hard cap at 256KB per spec - no inline blobs >256KB allowed
+        self.HARD_CAP_BYTES = 256 * 1024  # 256KB
+        if self.inline_max_bytes > self.HARD_CAP_BYTES:
+            raise ValueError(f"inline_max_bytes ({self.inline_max_bytes}) exceeds hard cap of 256KB")
+        
         self.ttl_logs = mcp_config.get("ttl_logs_hours", 24) * 3600
         self.ttl_diffs = mcp_config.get("ttl_diffs_days", 7) * 24 * 3600
         self.ttl_default = mcp_config.get("ttl_default_hours", 24) * 3600
 
     def _should_anchor(self, data: bytes) -> bool:
-        """Determine if data should be anchored (> configured threshold)."""
+        """Determine if data should be anchored.
+        
+        Hard cap: ALWAYS anchor if > 256KB (spec requirement)
+        Soft threshold: anchor if > configured inline_max_bytes
+        """
+        # Hard cap - no inline blobs > 256KB per spec
+        if len(data) > self.HARD_CAP_BYTES:
+            return True
+        # Normal threshold from config
         return len(data) > self.inline_max_bytes
 
     def _create_anchor(self, data: bytes, ttl_s: int = 3600) -> str:

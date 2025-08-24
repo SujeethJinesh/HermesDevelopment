@@ -1,0 +1,12 @@
+dataset:
+  name: princeton-nlp/SWE-bench_Lite
+  revision: b8b14b3
+  local_path: data/swebench_lite/b8b14b3/
+  split: test
+  smoke20_selector: first_20_by_instance_id   # stable default
+  slice50_file: configs/swebench_lite_slice50.txt
+  
+# Expected counts (enforced by loader)
+expected_counts:
+  dev: 23
+  test: 300
