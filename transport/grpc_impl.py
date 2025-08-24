@@ -18,6 +18,8 @@ from proto import baseline_pb2, baseline_pb2_grpc
 from agents.planner import Planner
 from agents.coder import Coder
 from agents.tester import Tester
+from agents.pm_arm import PMAgent
+from mcp.server import MCPServer
 
 logger = logging.getLogger(__name__)
 
@@ -25,18 +27,31 @@ logger = logging.getLogger(__name__)
 class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
     """gRPC service implementation for baseline agents."""
     
-    def __init__(self, arm: str, seed: int = 0):
+    def __init__(self, arm: str, seed: int = 0, config: Optional[Dict] = None):
         """Initialize service with agents.
         
         Args:
-            arm: "A" for JSON, "C" for Protobuf
+            arm: "A" for JSON, "C" for Protobuf, "PM" for Protobuf+MCP
             seed: Random seed for determinism
+            config: Configuration dict (for PM arm)
         """
         self.arm = arm
         self.seed = seed
-        self.planner = Planner(seed)
-        self.coder = Coder(seed)
-        self.tester = Tester(seed)
+        self.config = config or {}
+        
+        # Initialize agents based on arm
+        if arm == "PM":
+            # For PM, create MCP server and PM agent
+            self.mcp_server = MCPServer()
+            self.pm_agent = PMAgent(self.mcp_server, config)
+            # PM still uses regular agents for now (could be PM-specific later)
+            self.planner = Planner(seed)
+            self.coder = Coder(seed)
+            self.tester = Tester(seed)
+        else:
+            self.planner = Planner(seed)
+            self.coder = Coder(seed)
+            self.tester = Tester(seed)
         
         # Track state for multi-turn conversations
         self.task_state: Dict[str, Dict[str, Any]] = {}
@@ -114,7 +129,12 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
         return result.encode("utf-8")
     
     def _handle_protobuf(self, request: baseline_pb2.AgentEnvelope, state: Dict) -> bytes:
-        """Handle Protobuf payload for Arm C."""
+        """Handle Protobuf payload for Arm C and PM."""
+        # For PM arm, delegate to PM agent
+        if self.arm == "PM":
+            return self._handle_pm(request, state)
+            
+        # Otherwise, handle as regular Arm C
         if request.role == "planner":
             # Parse PlanRequest
             plan_req = baseline_pb2.PlanRequest()
@@ -188,22 +208,66 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
         
         else:
             raise ValueError(f"Unknown role: {request.role}")
+    
+    def _handle_pm(self, request: baseline_pb2.AgentEnvelope, state: Dict) -> bytes:
+        """Handle requests for Arm PM using MCP anchors."""
+        if request.role == "planner":
+            # Parse PlanRequest
+            plan_req = baseline_pb2.PlanRequest()
+            plan_req.ParseFromString(request.payload)
+            
+            # Use PM agent to handle with MCP anchors
+            plan_resp = self.pm_agent.handle_plan_request(plan_req)
+            
+            # Store in state (may contain MCP refs)
+            state["plan_steps"] = list(plan_resp.steps)
+            state["approach"] = plan_resp.approach
+            
+            return plan_resp.SerializeToString()
+            
+        elif request.role == "coder":
+            # Parse CodeRequest
+            code_req = baseline_pb2.CodeRequest()
+            code_req.ParseFromString(request.payload)
+            
+            # Use PM agent to handle with MCP anchors
+            code_resp = self.pm_agent.handle_code_request(code_req)
+            
+            # Store in state (may contain MCP ref)
+            state["patch"] = code_resp.patch
+            
+            return code_resp.SerializeToString()
+            
+        elif request.role == "tester":
+            # Parse TestRequest
+            test_req = baseline_pb2.TestRequest()
+            test_req.ParseFromString(request.payload)
+            
+            # Use PM agent to handle with MCP anchors
+            test_resp = self.pm_agent.handle_test_request(test_req)
+            
+            return test_resp.SerializeToString()
+        
+        else:
+            raise ValueError(f"Unknown role: {request.role}")
 
 
 class GrpcTransport:
     """Manages gRPC server and client over UNIX domain sockets."""
     
-    def __init__(self, socket_path: str, arm: str = "A", seed: int = 0):
+    def __init__(self, socket_path: str, arm: str = "A", seed: int = 0, config: Optional[Dict] = None):
         """Initialize transport.
         
         Args:
             socket_path: Path to UNIX domain socket
-            arm: "A" for JSON, "C" for Protobuf
+            arm: "A" for JSON, "C" for Protobuf, "PM" for Protobuf+MCP
             seed: Random seed for determinism
+            config: Configuration dict (needed for PM arm)
         """
         self.socket_path = socket_path
         self.arm = arm
         self.seed = seed
+        self.config = config
         self.server = None
         self.channel = None
         self.stub = None
@@ -221,7 +285,7 @@ class GrpcTransport:
         self.server = grpc.server(
             concurrent.futures.ThreadPoolExecutor(max_workers=4)
         )
-        service = ArmServiceImpl(self.arm, self.seed)
+        service = ArmServiceImpl(self.arm, self.seed, self.config)
         baseline_pb2_grpc.add_ArmServiceServicer_to_server(service, self.server)
         
         # Bind to UNIX domain socket (not TCP!)

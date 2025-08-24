@@ -121,7 +121,7 @@ class ArmRunner:
     def _run_agents_grpc(
         self, task: Dict[str, Any], task_seed: int, hermetic_run
     ) -> Dict[str, Any]:
-        """Run agents via gRPC for Arms A and C.
+        """Run agents via gRPC for Arms A, C, and PM.
 
         Args:
             task: Task dictionary
@@ -138,8 +138,13 @@ class ArmRunner:
         # Ensure parent directory exists (scratch_base should already exist)
         socket_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create transport
-        transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
+        # Create transport with config for PM arm
+        if self.arm == "PM":
+            transport = GrpcTransport(
+                str(socket_path), arm=self.arm, seed=task_seed, config=self.config
+            )
+        else:
+            transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
 
         try:
             # Start server
@@ -178,7 +183,7 @@ class ArmRunner:
                 )
                 plan_data = json.loads(result.payload)["steps"] if result.ok else []
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 plan_req = baseline_pb2.PlanRequest(
                     task_id=task["task_id"],
                     repo=task.get("repo", "test-repo"),
@@ -225,7 +230,7 @@ class ArmRunner:
                 )
                 patch = json.loads(result.payload)["patch"] if result.ok else ""
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 code_req = baseline_pb2.CodeRequest(
                     task_id=task["task_id"],
                     file_path=task.get("file_path", "src/test.py"),
@@ -242,6 +247,14 @@ class ArmRunner:
                 if result.ok:
                     code_resp = baseline_pb2.CodeResponse()
                     code_resp.ParseFromString(result.payload)
+                    
+                    # For PM arm, check if patch is an MCP reference
+                    if self.arm == "PM" and code_resp.patch.startswith("mcp://"):
+                        # Track that we got an anchor
+                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
+                            self.metrics.append({"mcp_refs": []})
+                        self.metrics[-1]["mcp_refs"].append(code_resp.patch)
+                    
                     patch = code_resp.patch
                 else:
                     patch = ""
@@ -270,7 +283,7 @@ class ArmRunner:
                 )
                 passed = json.loads(result.payload)["passed"] if result.ok else False
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 test_req = baseline_pb2.TestRequest(
                     task_id=task["task_id"],
                     test_name=task.get("test_name", "test_function"),
@@ -287,6 +300,14 @@ class ArmRunner:
                 if result.ok:
                     test_resp = baseline_pb2.TestResponse()
                     test_resp.ParseFromString(result.payload)
+                    
+                    # For PM arm, check if output is an MCP reference
+                    if self.arm == "PM" and test_resp.output.startswith("mcp://"):
+                        # Track that we got an anchor
+                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
+                            self.metrics.append({"mcp_refs": []})
+                        self.metrics[-1]["mcp_refs"].append(test_resp.output)
+                    
                     passed = test_resp.passed
                 else:
                     passed = False
@@ -366,8 +387,8 @@ class ArmRunner:
             seed_info = seed_all(task_seed, verbose=False)
             metrics["seed_info"] = seed_info
 
-            # Run actual agents for Arms A and C
-            if self.arm in ["A", "C"]:
+            # Run actual agents for Arms A, C, and PM
+            if self.arm in ["A", "C", "PM"]:
                 agent_metrics = self._run_agents_grpc(task, task_seed, hermetic_run)
                 metrics.update(agent_metrics)
             else:

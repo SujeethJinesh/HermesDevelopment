@@ -13,16 +13,24 @@ from proto import baseline_pb2
 class PMAgent:
     """Agent for Arm PM (Protobuf + MCP Anchors)."""
 
-    def __init__(self, mcp_server: Optional[MCPServer] = None):
+    def __init__(self, mcp_server: Optional[MCPServer] = None, config: Optional[Dict] = None):
         """Initialize PM agent with MCP support."""
         self.mcp_server = mcp_server or MCPServer()
         self.mcp_client = MCPClient(self.mcp_server)
         self.bytes_saved = 0
         self.anchors_created = 0
+        
+        # Load config settings
+        config = config or {}
+        mcp_config = config.get("mcp", {})
+        self.inline_max_bytes = mcp_config.get("inline_max_bytes", 32768)  # 32KB default
+        self.ttl_logs = mcp_config.get("ttl_logs_hours", 24) * 3600
+        self.ttl_diffs = mcp_config.get("ttl_diffs_days", 7) * 24 * 3600
+        self.ttl_default = mcp_config.get("ttl_default_hours", 24) * 3600
 
     def _should_anchor(self, data: bytes) -> bool:
-        """Determine if data should be anchored (>256 bytes)."""
-        return len(data) > 256
+        """Determine if data should be anchored (> configured threshold)."""
+        return len(data) > self.inline_max_bytes
 
     def _create_anchor(self, data: bytes, ttl_s: int = 3600) -> str:
         """Create MCP anchor and return reference."""
@@ -85,7 +93,7 @@ Risk assessment and mitigation strategies for the proposed changes.
         
         # Anchor large approach text if needed
         if self._should_anchor(approach.encode()):
-            ref = self._create_anchor(approach.encode())
+            ref = self._create_anchor(approach.encode(), ttl_s=self.ttl_default)
             response.approach = ref
         else:
             response.approach = approach
@@ -124,7 +132,7 @@ Risk assessment and mitigation strategies for the proposed changes.
         
         # For large patches, use MCP anchor
         if self._should_anchor(patch.encode()):
-            ref = self._create_anchor(patch.encode(), ttl_s=7 * 24 * 3600)  # 7 days for diffs
+            ref = self._create_anchor(patch.encode(), ttl_s=self.ttl_diffs)
             response.patch = ref
         else:
             response.patch = patch
@@ -176,7 +184,7 @@ TOTAL                      402     14    97%
         
         # Anchor large test output
         if self._should_anchor(test_output.encode()):
-            ref = self._create_anchor(test_output.encode(), ttl_s=24 * 3600)  # 24h for logs
+            ref = self._create_anchor(test_output.encode(), ttl_s=self.ttl_logs)
             response.output = ref
         else:
             response.output = test_output

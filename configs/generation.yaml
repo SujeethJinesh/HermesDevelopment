@@ -51,3 +51,12 @@ benchmarks:
   max_workers: 4
   timeout_seconds: 300
   retry_attempts: 2
+
+mcp:
+  # Inline threshold - payloads larger than this are anchored
+  inline_max_bytes: 32768  # 32 KB default (spec allows up to 256 KB)
+  
+  # TTL settings for different content types
+  ttl_logs_hours: 24
+  ttl_diffs_days: 7
+  ttl_default_hours: 24
