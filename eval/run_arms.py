@@ -21,6 +21,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from env.hermetic import HermeticRun
 from eval._seed import compute_task_seed, generate_deterministic_id, seed_all
+from eval.datasets.swebench_lite import SWEBenchLiteLoader
+from eval.swebench_bridge import SWEBenchBridge
 from proto import baseline_pb2
 from transport.grpc_impl import GrpcTransport
 
@@ -42,7 +44,9 @@ class ArmRunner:
         seed: int,
         gen_cfg_path: str,
         hermetic: bool = True,
-        toy_tasks: Optional[int] = None,
+        dataset: Optional[str] = None,
+        split: Optional[str] = None,
+        instances_file: Optional[str] = None,
     ):
         """Initialize arm runner.
 
@@ -51,7 +55,9 @@ class ArmRunner:
             seed: Random seed for determinism
             gen_cfg_path: Path to generation config (must be configs/generation.yaml)
             hermetic: Whether to run in hermetic mode
-            toy_tasks: Number of toy tasks to run (for testing)
+            dataset: Dataset to use (swebench_lite)
+            split: Dataset split (dev or test)
+            instances_file: Path to file with instance IDs to run
         """
         if arm not in self.VALID_ARMS:
             raise ValueError(f"Invalid arm: {arm}. Must be one of {self.VALID_ARMS}")
@@ -59,7 +65,9 @@ class ArmRunner:
         self.arm = arm
         self.seed = seed
         self.hermetic = hermetic
-        self.toy_tasks = toy_tasks
+        self.dataset = dataset
+        self.split = split or "test"
+        self.instances_file = instances_file
 
         # Enforce config parity - only accept the canonical config
         if gen_cfg_path != "configs/generation.yaml":
@@ -99,29 +107,34 @@ class ArmRunner:
         Returns:
             List of task dictionaries
         """
-        if self.toy_tasks:
-            # Create toy tasks for testing
-            tasks = []
-            for i in range(self.toy_tasks):
-                tasks.append(
-                    {
-                        "task_id": f"toy-{i:03d}",
-                        "repo": "test-repo",
-                        "file_path": f"src/test_{i}.py",
-                        "test_name": f"test_function_{i}",
-                        "description": f"Toy task {i} for testing",
-                    }
-                )
-            return tasks
-
-        # Would load real SWE-bench tasks here
-        # For now, return empty list as we're focusing on the harness
+        # Dataset is required
+        if not self.dataset:
+            raise ValueError(
+                "Dataset must be specified. Use --dataset swebench_lite"
+            )
+        
+        # Load SWE-bench Lite if specified
+        if self.dataset == "swebench_lite":
+            loader = SWEBenchLiteLoader()
+            
+            if self.instances_file:
+                # Load specific instances from file
+                instances = loader.load_instances_file(self.instances_file, self.split)
+            else:
+                # Full split
+                dataset = loader.load_split(self.split)
+                instances = list(dataset)
+            
+            # Convert to task format
+            return [loader.to_task_format(inst) for inst in instances]
+        
+        # No dataset specified
         return []
 
     def _run_agents_grpc(
         self, task: Dict[str, Any], task_seed: int, hermetic_run
     ) -> Dict[str, Any]:
-        """Run agents via gRPC for Arms A and C.
+        """Run agents via gRPC for Arms A, C, and PM.
 
         Args:
             task: Task dictionary
@@ -138,8 +151,13 @@ class ArmRunner:
         # Ensure parent directory exists (scratch_base should already exist)
         socket_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Create transport
-        transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
+        # Create transport with config for PM arm
+        if self.arm == "PM":
+            transport = GrpcTransport(
+                str(socket_path), arm=self.arm, seed=task_seed, config=self.config
+            )
+        else:
+            transport = GrpcTransport(str(socket_path), arm=self.arm, seed=task_seed)
 
         try:
             # Start server
@@ -166,6 +184,9 @@ class ArmRunner:
                 }
             ).encode("utf-8")
 
+            # Track E2E timing with monotonic clock
+            e2e_start_ns = time.perf_counter_ns()
+
             # 1. Call Planner
             if self.arm == "A":
                 # Arm A: JSON
@@ -178,7 +199,7 @@ class ArmRunner:
                 )
                 plan_data = json.loads(result.payload)["steps"] if result.ok else []
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 plan_req = baseline_pb2.PlanRequest(
                     task_id=task["task_id"],
                     repo=task.get("repo", "test-repo"),
@@ -225,7 +246,7 @@ class ArmRunner:
                 )
                 patch = json.loads(result.payload)["patch"] if result.ok else ""
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 code_req = baseline_pb2.CodeRequest(
                     task_id=task["task_id"],
                     file_path=task.get("file_path", "src/test.py"),
@@ -242,6 +263,14 @@ class ArmRunner:
                 if result.ok:
                     code_resp = baseline_pb2.CodeResponse()
                     code_resp.ParseFromString(result.payload)
+                    
+                    # For PM arm, check if patch is an MCP reference
+                    if self.arm == "PM" and code_resp.patch.startswith("mcp://"):
+                        # Track that we got an anchor
+                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
+                            self.metrics.append({"mcp_refs": []})
+                        self.metrics[-1]["mcp_refs"].append(code_resp.patch)
+                    
                     patch = code_resp.patch
                 else:
                     patch = ""
@@ -270,7 +299,7 @@ class ArmRunner:
                 )
                 passed = json.loads(result.payload)["passed"] if result.ok else False
             else:
-                # Arm C: Protobuf
+                # Arm C and PM: Protobuf
                 test_req = baseline_pb2.TestRequest(
                     task_id=task["task_id"],
                     test_name=task.get("test_name", "test_function"),
@@ -287,6 +316,14 @@ class ArmRunner:
                 if result.ok:
                     test_resp = baseline_pb2.TestResponse()
                     test_resp.ParseFromString(result.payload)
+                    
+                    # For PM arm, check if output is an MCP reference
+                    if self.arm == "PM" and test_resp.output.startswith("mcp://"):
+                        # Track that we got an anchor
+                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
+                            self.metrics.append({"mcp_refs": []})
+                        self.metrics[-1]["mcp_refs"].append(test_resp.output)
+                    
                     passed = test_resp.passed
                 else:
                     passed = False
@@ -305,14 +342,24 @@ class ArmRunner:
                 for r in rtts:
                     f.write(json.dumps({"task_id": task["task_id"], "rtt_ms": r}) + "\n")
 
-            # Calculate e2e latency (sum of all message paths)
-            e2e_latency_ms = sum(message_paths)
+            # Calculate e2e latency properly with monotonic clock
+            # E2E = total time from first request to last response
+            e2e_end_ns = time.perf_counter_ns()
+            e2e_latency_ms = (e2e_end_ns - e2e_start_ns) / 1_000_000  # Convert ns to ms
 
-            # Calculate p95 message path
+            # Calculate p95 message path (processing time inside agents)
             if message_paths:
-                message_path_p95 = sorted(message_paths)[int(len(message_paths) * 0.95)]
+                # Filter out zeros and calculate p95
+                valid_paths = [p for p in message_paths if p > 0]
+                if valid_paths:
+                    sorted_paths = sorted(valid_paths)
+                    p95_idx = min(int(len(sorted_paths) * 0.95), len(sorted_paths) - 1)
+                    message_path_p95 = sorted_paths[p95_idx]
+                else:
+                    # All zeros - use minimum measurable time
+                    message_path_p95 = 0.001  # 1 microsecond minimum
             else:
-                message_path_p95 = 0
+                message_path_p95 = 0.001
 
             return {
                 "bytes_in": total_bytes_in,
@@ -366,8 +413,8 @@ class ArmRunner:
             seed_info = seed_all(task_seed, verbose=False)
             metrics["seed_info"] = seed_info
 
-            # Run actual agents for Arms A and C
-            if self.arm in ["A", "C"]:
+            # Run actual agents for Arms A, C, and PM
+            if self.arm in ["A", "C", "PM"]:
                 agent_metrics = self._run_agents_grpc(task, task_seed, hermetic_run)
                 metrics.update(agent_metrics)
             else:
@@ -576,7 +623,25 @@ def main():
         default="on",
         help="Enable hermetic execution (default: on)",
     )
-    parser.add_argument("--toy", type=int, metavar="N", help="Run N toy tasks for testing")
+    
+    # Dataset arguments
+    parser.add_argument(
+        "--dataset",
+        choices=["swebench_lite"],
+        required=True,
+        help="Dataset to use (swebench_lite)",
+    )
+    parser.add_argument(
+        "--split",
+        choices=["dev", "test"],
+        default="test",
+        help="Dataset split to use (default: test)",
+    )
+    parser.add_argument(
+        "--instances_file",
+        type=str,
+        help="Path to file with instance IDs to run (one per line)",
+    )
 
     # Parse arguments
     args = parser.parse_args()
@@ -595,7 +660,9 @@ def main():
             seed=args.seed,
             gen_cfg_path=args.gen_cfg,
             hermetic=(args.hermetic == "on"),
-            toy_tasks=args.toy,
+            dataset=args.dataset,
+            split=args.split,
+            instances_file=args.instances_file,
         )
         runner.run()
         return 0

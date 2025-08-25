@@ -1,0 +1,14 @@
+dataset:
+  name: princeton-nlp/SWE-bench_Lite
+  # Official dataset from HuggingFace
+  # https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite
+  revision: main
+  local_path: data/swebench_lite/main/
+  split: test
+  smoke20_selector: first_20_by_instance_id   # stable default
+  slice50_file: configs/swebench_lite_slice50.txt
+  
+# Expected counts (enforced by loader)
+expected_counts:
+  dev: 23
+  test: 300
