@@ -23,13 +23,26 @@ class SWEBenchLiteLoader:
         "problem_statement", "FAIL_TO_PASS", "PASS_TO_PASS", "environment_setup_commit"
     ]
     
-    def __init__(self, revision: Optional[str] = None):
-        """Initialize with optional pinned revision.
+    def __init__(self, revision: Optional[str] = None, hermetic: bool = False, cache_dir: Optional[Path] = None):
+        """Initialize with optional pinned revision and hermetic mode.
         
         Args:
             revision: HF dataset revision (commit SHA or tag). If None, reads from
                      SWEBENCH_REVISION env var or configs/swebench_lite.yaml
+            hermetic: If True, run in hermetic mode (offline, no network)
+            cache_dir: Cache directory for hermetic runs
         """
+        # Set up hermetic environment if requested
+        if hermetic:
+            if not cache_dir:
+                raise ValueError("cache_dir required for hermetic mode")
+            os.environ["HF_DATASETS_OFFLINE"] = "1"
+            os.environ["HF_HOME"] = str(cache_dir)
+            os.environ["HF_DATASETS_CACHE"] = str(cache_dir / "datasets")
+        
+        self.hermetic = hermetic
+        self.cache_dir = cache_dir
+        
         # Load config for revision if not provided
         if revision is None:
             revision = os.environ.get("SWEBENCH_REVISION")

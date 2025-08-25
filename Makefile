@@ -1,9 +1,10 @@
 .PHONY: lint fmt test prepare-swebench check-toy run-c run-pm clean
 
-# Check for banned toy/mock datasets in source code
+# Check for banned toy/mock datasets in source code  
 check-toy:
 	@echo "Checking for banned toy/smoke patterns in source code..."
 	@! grep -r -E "(toy_tasks|--toy|smoke_test|--smoke)" . --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=docs --exclude-dir=tests --exclude-dir=.claude --exclude-dir=.pytest_cache --exclude-dir=.github --exclude="Makefile" --exclude="*.parquet" --exclude="*.pyc" --exclude="*.md" --exclude="*.log" 2>/dev/null | grep -v "^[[:space:]]*#" || (echo "ERROR: Found banned patterns in source" && false)
+	@! grep -E "(--toy|--smoke)" Makefile 2>/dev/null | grep -v "^[[:space:]]*#" || (echo "ERROR: Found --toy or --smoke in Makefile. Use --instances_file instead" && false)
 	@echo "✅ No banned patterns found in source code"
 
 lint: check-toy

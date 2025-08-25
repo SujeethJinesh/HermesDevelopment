@@ -12,11 +12,11 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Check for banned toy/smoke/mock patterns
+    - name: Check for banned toy/smoke patterns in source code
       run: |
-        echo "Checking for banned toy/smoke/mock patterns..."
+        echo "Checking for banned toy/smoke patterns in source code..."
         
-        # Check for toy dataset references (excluding unittest.mock and docs)
+        # Check source code for toy dataset references (excluding tests and docs)
         if grep -r -E "(toy_tasks|--toy|smoke_test|--smoke)" . \
           --exclude-dir=.git \
           --exclude-dir=__pycache__ \
@@ -28,21 +28,32 @@ jobs:
           --exclude="*.pyc" \
           --exclude="*.md" \
           --exclude="*.log" \
+          --exclude=".github/workflows/ban_toy_datasets.yml" \
           2>/dev/null | grep -v "^[[:space:]]*#"; then
           echo "ERROR: Found banned toy/smoke patterns in source code"
+          echo "Please use --instances_file configs/swebench_lite_slice20.txt instead"
+          exit 1
+        fi
+        
+        # Special check for Makefile
+        if grep -E "(--toy|--smoke)" Makefile 2>/dev/null | grep -v "^[[:space:]]*#"; then
+          echo "ERROR: Found --toy or --smoke in Makefile"
+          echo "Please use --instances_file configs/swebench_lite_slice20.txt instead"
           exit 1
         fi
         
         # Check for vendored dataset content
         if [ -d "data/swebench_lite/" ]; then
           echo "ERROR: Found vendored dataset content in data/swebench_lite/"
+          echo "Datasets should be loaded from Hugging Face, not vendored"
           exit 1
         fi
         
-        # Ensure no synthetic payload generators
-        if grep -r "def.*generate.*synthetic\|fake.*pytest\|manufactured.*output" agents/ 2>/dev/null; then
+        # Ensure no synthetic payload generators in agents
+        if grep -r "def.*generate.*synthetic\|fake.*pytest\|manufactured.*output" agents/ 2>/dev/null | grep -v "^[[:space:]]*#"; then
           echo "ERROR: Found synthetic data generation in agents"
+          echo "Use real test output from agents/real_tester.py instead"
           exit 1
         fi
         
-        echo "✅ No banned patterns found"
+        echo "✅ No banned patterns found in source code"
