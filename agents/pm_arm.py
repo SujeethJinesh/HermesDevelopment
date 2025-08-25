@@ -85,7 +85,7 @@ class PMAgent:
             approach = f"Fix {request.test_name} in {request.file_path}"
         else:
             # Large approach for normal requests
-            approach = f"""Approach for fixing {request.test_name} in {request.repo}:
+            approach = f"""Approach for fixing {request.test_name}:
         
 The test is failing due to an edge case in the implementation. 
 We'll need to carefully analyze the test expectations and update
@@ -119,7 +119,6 @@ Risk assessment and mitigation strategies for the proposed changes.
         """Handle coding request with MCP anchors for patches."""
         response = baseline_pb2.CodeResponse()
         
-        # Generate a patch (could be large for real changes)
         # Generate a patch (could be large for real changes)
         # Note: Using raw string to avoid f-string issues with braces
         patch = f"""--- a/{request.file_path}
@@ -160,115 +159,20 @@ Risk assessment and mitigation strategies for the proposed changes.
         """Handle test request with MCP anchors for output."""
         response = baseline_pb2.TestResponse()
         
-        # Generate realistic pytest output with failures (SWE-bench typically has failures)
-        # This mimics real pytest -v -rA output which can be VERY large
-        test_lines = [
-            f"Running pytest for {request.test_name}...",
-            "========================= test session starts ==========================",
-            "platform darwin -- Python 3.11.6, pytest-7.4.3, pluggy-1.3.0",
-            f"rootdir: /tmp/{request.repo}",
-            "collected 87 items",
-            ""
-        ]
+        # In production, this would use real pytest output from running tests
+        # For T1.2 acceptance, this must demonstrate actual bytes savings
+        # Placeholder for now - should be replaced with real test runner integration
+        test_output = f"Test {request.test_name} placeholder output\n"
         
-        # Add many test results (realistic for SWE-bench)
-        for i in range(87):
-            status = "PASSED" if i % 3 != 0 else "FAILED"
-            test_lines.append(
-                f"tests/test_module_{i//10}.py::TestClass{i//5}::test_case_{i:03d} {status:6} [{i+1:3}%]"
-            )
-            
-            # Add failure details for failed tests (these get LARGE)
-            if status == "FAILED":
-                test_lines.extend([
-                    "",
-                    f"_________________________________ test_case_{i:03d} _________________________________",
-                    f"    def test_case_{i:03d}(self):",
-                    f"        # Test implementation for case {i}",
-                    f"        input_data = prepare_test_data({i})",
-                    f"        expected = calculate_expected({i})",
-                    f"        result = compute_value(input_data)",
-                    f">       assert result == expected_value",
-                    f"E       AssertionError: assert {i*2} == {i*3}",
-                    f"E        +  where {i*2} = compute_value({i})",
-                    f"E        +    where {i} = input_data.value",
-                    f"E        +  and   {i*3} = expected_value",
-                    "",
-                    f"tests/test_module_{i//10}.py:{100+i}: AssertionError",
-                    "------------------------------ Captured stdout ------------------------------",
-                ])
-                
-                # Add LOTS of debug output (realistic for failing tests)
-                for j in range(50):  # 50 lines of debug output per failure
-                    test_lines.append(f"[DEBUG {j:03d}] Processing step {j} for item {i}: intermediate_value={i*j}")
-                
-                test_lines.extend([
-                    "------------------------------ Captured stderr ------------------------------",
-                ])
-                
-                for j in range(30):  # 30 lines of warnings/errors
-                    test_lines.append(f"WARNING: Issue at line {100+j}: deprecated call in function process_{j}")
-                
-                test_lines.extend([
-                    "------------------------------ Captured log --------------------------------",
-                ])
-                
-                for j in range(40):  # 40 lines of structured logs
-                    level = ["DEBUG", "INFO", "WARNING", "ERROR"][j % 4]
-                    test_lines.append(
-                        f"{level:7}  module.core:func_{j}:{200+j} Operation {j} on item {i}: status={'OK' if j%3 else 'WARN'}"
-                    )
-                
-                test_lines.append("")
-        
-        # Add summary section
-        test_lines.extend([
-            "",
-            "=================================== FAILURES ===================================",
-            ""
-        ])
-        
-        # Add detailed failure report
-        for i in range(0, 87, 3):
-            test_lines.extend([
-                f"_________________________ TestClass{i//5}::test_case_{i:03d} _________________________",
-                f"Assertion failed: expected {i*3}, got {i*2}",
-                ""
-            ])
-        
-        # Add coverage report (also can be large)
-        test_lines.extend([
-            "",
-            "---------- coverage: platform darwin, python 3.11.6-final-0 ----------",
-            "Name                                  Stmts   Miss  Cover   Missing",
-            "-------------------------------------------------------------------"
-        ])
-        
-        for i in range(50):  # Many source files
-            miss = i * 3 if i % 5 == 0 else 0
-            cover = 100 if miss == 0 else int(100 * (200 - miss) / 200)
-            test_lines.append(
-                f"src/module_{i:02d}/component.py         200    {miss:4}   {cover:3}%   {', '.join(str(x) for x in range(miss)) if miss else ''}"
-            )
-        
-        test_lines.extend([
-            "-------------------------------------------------------------------",
-            "TOTAL                                 10000    289    97%",
-            "",
-            "========================= 29 failed, 58 passed in 12.34s ========================="
-        ])
-        
-        test_output = "\n".join(test_lines)
-        
-        # Anchor large test output
+        # Only anchor if output exceeds threshold
         if self._should_anchor(test_output.encode()):
             ref = self._create_anchor(test_output.encode(), ttl_s=self.ttl_logs)
             response.output = ref
         else:
             response.output = test_output
             
-        response.passed = True
-        response.duration_ms = 2340
+        response.passed = False  # Conservative default
+        response.duration_ms = 0
         return response
 
     def get_stats(self) -> Dict:

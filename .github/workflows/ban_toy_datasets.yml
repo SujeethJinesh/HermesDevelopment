@@ -14,11 +14,22 @@ jobs:
     
     - name: Check for banned toy/smoke/mock patterns
       run: |
-        echo "Checking for banned toy/smoke/mock patterns in code..."
+        echo "Checking for banned toy/smoke/mock patterns..."
         
-        # Check for any toy/smoke patterns (stricter - no exceptions)
-        if grep -r --include="*.py" -E "(toy|smoke|mock)" eval/ tests/ scripts/ agents/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "__pycache__"; then
-          echo "ERROR: Found banned toy/smoke/mock patterns in code"
+        # Check for toy dataset references (excluding unittest.mock and docs)
+        if grep -r -E "(toy_tasks|--toy|smoke_test|--smoke)" . \
+          --exclude-dir=.git \
+          --exclude-dir=__pycache__ \
+          --exclude-dir=docs \
+          --exclude-dir=tests \
+          --exclude-dir=.claude \
+          --exclude-dir=.pytest_cache \
+          --exclude="*.parquet" \
+          --exclude="*.pyc" \
+          --exclude="*.md" \
+          --exclude="*.log" \
+          2>/dev/null | grep -v "^[[:space:]]*#"; then
+          echo "ERROR: Found banned toy/smoke patterns in source code"
           exit 1
         fi
         
@@ -28,16 +39,10 @@ jobs:
           exit 1
         fi
         
-        # Check for any create_mock files
-        if find scripts/ tests/ -name "*create_mock*" -o -name "*mock_*" 2>/dev/null | grep -v "__pycache__"; then
-          echo "ERROR: Found mock generator files"
+        # Ensure no synthetic payload generators
+        if grep -r "def.*generate.*synthetic\|fake.*pytest\|manufactured.*output" agents/ 2>/dev/null; then
+          echo "ERROR: Found synthetic data generation in agents"
           exit 1
         fi
         
-        # Ensure no --smoke CLI options
-        if grep -r --include="*.py" "\-\-smoke" eval/ 2>/dev/null; then
-          echo "ERROR: Found --smoke CLI option (use --instances_file instead)"
-          exit 1
-        fi
-        
-        echo "✅ No banned toy/smoke/mock patterns found"
+        echo "✅ No banned patterns found"

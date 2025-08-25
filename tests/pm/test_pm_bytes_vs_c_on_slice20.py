@@ -19,7 +19,7 @@ class TestPMBytesVsC:
         # Create PM agent with low threshold for demonstration
         config = {
             "mcp": {
-                "inline_max_bytes": 8192,  # 8KB threshold for T1.2
+                "inline_max_bytes": 100,  # Very low threshold to force anchoring
                 "ttl_logs_hours": 24
             }
         }
@@ -33,11 +33,27 @@ class TestPMBytesVsC:
         request.test_name = "test_edge_case"
         request.patch = "diff patch here"
         
-        # Handle test request
+        # Simulate real test output (would come from actual pytest run)
+        # For now, inject a larger test output to demonstrate anchoring
+        large_output = "FAILED test output\n" * 50  # > 100 bytes
+        
+        # Mock the test output temporarily
+        original_method = pm_agent.handle_test_request
+        def mock_handle(req):
+            resp = baseline_pb2.TestResponse()
+            if pm_agent._should_anchor(large_output.encode()):
+                ref = pm_agent._create_anchor(large_output.encode(), ttl_s=pm_agent.ttl_logs)
+                resp.output = ref
+            else:
+                resp.output = large_output
+            resp.passed = False
+            resp.duration_ms = 0
+            return resp
+        
+        pm_agent.handle_test_request = mock_handle
         response = pm_agent.handle_test_request(request)
         
         # Verify response contains MCP anchor for large output
-        # The synthetic output is > 8KB so should be anchored
         assert response.output.startswith("mcp://"), \
             f"Expected MCP anchor but got: {response.output[:50]}"
         

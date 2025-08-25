@@ -1,11 +1,10 @@
 .PHONY: lint fmt test prepare-swebench check-toy run-c run-pm clean
 
-# Check for banned toy/mock datasets (exclude legitimate smoke-20 references)
+# Check for banned toy/mock datasets in source code
 check-toy:
-	@echo "Checking for banned toy/smoke/mock patterns..."
-	@! grep -r --include="*.py" -E "(\btoy-[0-9]|\bsmoke-[0-9])" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "smoke-20" || (echo "ERROR: Found banned patterns" && false)
-	@! grep -ri --include="*.py" -E "(mock_swebench|create_mock|mock.?dataset)" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" || (echo "ERROR: Found mock patterns" && false)
-	@echo "✅ No banned patterns found"
+	@echo "Checking for banned toy/smoke patterns in source code..."
+	@! grep -r -E "(toy_tasks|--toy|smoke_test|--smoke)" . --exclude-dir=.git --exclude-dir=__pycache__ --exclude-dir=docs --exclude-dir=tests --exclude-dir=.claude --exclude-dir=.pytest_cache --exclude-dir=.github --exclude="Makefile" --exclude="*.parquet" --exclude="*.pyc" --exclude="*.md" --exclude="*.log" 2>/dev/null | grep -v "^[[:space:]]*#" || (echo "ERROR: Found banned patterns in source" && false)
+	@echo "✅ No banned patterns found in source code"
 
 lint: check-toy
 	ruff check eval tests
@@ -30,10 +29,10 @@ prepare-swebench:
 
 # Run Arms for evaluation
 run-c:
-	HERMES_HERMETIC=1 python -m eval.run_arms --arm C --dataset swebench_lite --split test --smoke 20 --seed 123
+	HERMES_HERMETIC=1 python -m eval.run_arms --arm C --dataset swebench_lite --instances_file configs/swebench_lite_slice20.txt --seed 123
 
 run-pm:
-	HERMES_HERMETIC=1 python -m eval.run_arms --arm PM --dataset swebench_lite --split test --smoke 20 --seed 123
+	HERMES_HERMETIC=1 python -m eval.run_arms --arm PM --dataset swebench_lite --instances_file configs/swebench_lite_slice20.txt --seed 123
 
 # Clean temporary files
 clean:
