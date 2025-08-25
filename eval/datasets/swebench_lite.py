@@ -1,172 +1,191 @@
-"""Hermetic SWE-bench Lite loader with deterministic selection."""
+"""Official SWE-bench Lite loader with hermetic support."""
 
 import json
 import os
-import pickle
 from pathlib import Path
 from typing import Dict, List, Optional
 import hashlib
 
-try:
-    from datasets import load_dataset, load_from_disk
-    HAS_DATASETS = True
-except ImportError:
-    HAS_DATASETS = False
-    # Fallback for when datasets library is not available
-    def load_from_disk(path):
-        """Load mock dataset from disk."""
-        import pickle
-        dataset_file = Path(path) / "dataset.pkl"
-        if dataset_file.exists():
-            with open(dataset_file, "rb") as f:
-                return pickle.load(f)
-        # Try JSON fallback
-        json_file = Path(path) / "dataset.json"
-        if json_file.exists():
-            with open(json_file) as f:
-                return json.load(f)
-        raise FileNotFoundError(f"No dataset found at {path}")
-    
-    def load_dataset(name, split, revision):
-        """Stub that raises error."""
-        raise RuntimeError("datasets library not installed. Use mock data or install datasets.")
+from datasets import load_dataset
 
 
 class SWEBenchLiteLoader:
-    """Hermetic loader for SWE-bench Lite dataset."""
+    """Official loader for SWE-bench Lite dataset from Hugging Face."""
     
-    def __init__(self, config_path: str = "configs/swebench_lite.yaml"):
-        """Initialize with config."""
-        import yaml
-        with open(config_path) as f:
-            self.config = yaml.safe_load(f)["dataset"]
+    # Official dataset name and expected counts
+    DATASET_NAME = "SWE-bench/SWE-bench_Lite"
+    EXPECTED_DEV_COUNT = 23
+    EXPECTED_TEST_COUNT = 300
+    
+    # Required columns per official schema
+    REQUIRED_COLUMNS = [
+        "instance_id", "repo", "base_commit", "patch", "test_patch",
+        "problem_statement", "FAIL_TO_PASS", "PASS_TO_PASS", "environment_setup_commit"
+    ]
+    
+    def __init__(self, revision: Optional[str] = None):
+        """Initialize with optional pinned revision.
         
-        self.name = self.config["name"]
-        self.revision = self.config["revision"]
-        self.local_path = Path(self.config["local_path"])
-        self.expected_counts = self.config.get("expected_counts", {})
+        Args:
+            revision: HF dataset revision (commit SHA or tag). If None, reads from
+                     SWEBENCH_REVISION env var or configs/swebench_lite.yaml
+        """
+        # Load config for revision if not provided
+        if revision is None:
+            revision = os.environ.get("SWEBENCH_REVISION")
+            if revision is None:
+                try:
+                    import yaml
+                    with open("configs/swebench_lite.yaml") as f:
+                        config = yaml.safe_load(f)
+                        revision = config.get("dataset", {}).get("revision")
+                except (FileNotFoundError, KeyError):
+                    pass  # Use latest if no revision specified
         
-        # Check hermetic mode
+        self.revision = revision
+        self.expected_counts = {
+            "dev": self.EXPECTED_DEV_COUNT,
+            "test": self.EXPECTED_TEST_COUNT
+        }
+        
+        # Check hermetic mode (respects HF_DATASETS_OFFLINE)
         self.hermetic = os.environ.get("HERMES_HERMETIC") == "1"
-        
         if self.hermetic:
-            # Verify local data exists
-            manifest_path = self.local_path / "MANIFEST.json"
-            if not manifest_path.exists():
-                raise RuntimeError(
-                    f"Hermetic mode requires prepared data at {self.local_path}\n"
-                    f"Run: bash scripts/prepare_swebench.sh"
-                )
-            
-            # Validate manifest
-            with open(manifest_path) as f:
-                manifest = json.load(f)
-            
-            if manifest["revision"] != self.revision:
-                raise ValueError(
-                    f"Manifest revision {manifest['revision']} != config {self.revision}"
-                )
-            
-            # Validate counts
-            for split, expected in self.expected_counts.items():
-                actual = manifest["splits"].get(split, 0)
-                if actual != expected:
-                    raise ValueError(
-                        f"Split {split}: expected {expected} instances, got {actual}"
-                    )
+            # Ensure HF offline mode is set
+            os.environ["HF_DATASETS_OFFLINE"] = "1"
     
-    def load_split(self, split: str = "test"):
-        """Load a dataset split (hermetic or network)."""
-        if self.hermetic:
-            # Load from disk only
-            split_path = self.local_path / split
-            if not split_path.exists():
-                raise FileNotFoundError(f"Split {split} not found at {split_path}")
-            
-            dataset = load_from_disk(str(split_path))
-            # If it's a list (mock data), keep as is
-            if isinstance(dataset, list):
-                dataset = dataset
-        else:
-            # Development mode - allow network access
-            dataset = load_dataset(
-                self.name,
-                split=split,
-                revision=self.revision
-            )
-            
-            # Cache to disk for consistency
-            split_path = self.local_path / split
-            split_path.parent.mkdir(parents=True, exist_ok=True)
-            dataset.save_to_disk(str(split_path))
+    def load_split(self, split: str = "test") -> List[Dict]:
+        """Load a dataset split from Hugging Face.
         
-        # Validate count
-        expected = self.expected_counts.get(split)
-        if expected and len(dataset) != expected:
+        Args:
+            split: Dataset split to load ("dev" or "test")
+            
+        Returns:
+            List of instances as dictionaries
+            
+        Raises:
+            ValueError: If split is invalid or dataset validation fails
+        """
+        if split not in self.expected_counts:
+            raise ValueError(f"Invalid split '{split}'. Must be 'dev' or 'test'")
+        
+        # Load from Hugging Face (uses cache if available, respects HF_DATASETS_OFFLINE)
+        dataset = load_dataset(
+            self.DATASET_NAME,
+            split=split,
+            revision=self.revision,
+            trust_remote_code=False  # Security: don't execute remote code
+        )
+        
+        # Validate structure
+        self._validate_dataset(dataset, split)
+        
+        # Convert to list of dicts
+        return [dict(row) for row in dataset]
+    
+    def _validate_dataset(self, dataset, split: str):
+        """Validate dataset has expected structure and size."""
+        # Check row count
+        actual_count = len(dataset)
+        expected_count = self.expected_counts[split]
+        if actual_count != expected_count:
             raise ValueError(
-                f"Split {split}: expected {expected} instances, got {len(dataset)}"
+                f"Dataset validation failed: {split} split has {actual_count} rows, "
+                f"expected {expected_count}"
             )
         
-        # Convert to list if it's a datasets object
-        if not isinstance(dataset, list):
-            dataset = list(dataset)
-        
-        return dataset
+        # Check required columns
+        missing_cols = set(self.REQUIRED_COLUMNS) - set(dataset.column_names)
+        if missing_cols:
+            raise ValueError(
+                f"Dataset validation failed: missing required columns {missing_cols}"
+            )
     
-    def get_smoke20(self, split: str = "test", seed: Optional[int] = None) -> List[Dict]:
-        """Get 20 instances for smoke testing (deterministic)."""
-        dataset = self.load_split(split)
+    def get_instances_by_ids(self, split: str, instance_ids: List[str]) -> List[Dict]:
+        """Get specific instances by their IDs.
         
-        # Sort by instance_id for stability
-        instances = sorted(dataset, key=lambda x: x["instance_id"])
+        Args:
+            split: Dataset split
+            instance_ids: List of instance IDs to retrieve
+            
+        Returns:
+            List of matching instances in the order specified
+            
+        Raises:
+            ValueError: If any instance ID is not found
+        """
+        all_instances = self.load_split(split)
+        id_to_instance = {inst["instance_id"]: inst for inst in all_instances}
         
-        if seed is not None:
-            # Seed-based deterministic selection
-            import random
-            rng = random.Random(seed)
-            
-            # Create stable hash for each instance
-            hashed = []
-            for inst in instances:
-                h = hashlib.sha256(f"{seed}{inst['instance_id']}".encode()).hexdigest()
-                hashed.append((h, inst))
-            
-            # Sort by hash and take first 20
-            hashed.sort(key=lambda x: x[0])
-            return [inst for _, inst in hashed[:20]]
-        else:
-            # Default: first 20 by instance_id
-            return instances[:20]
+        instances = []
+        missing_ids = []
+        for inst_id in instance_ids:
+            if inst_id in id_to_instance:
+                instances.append(id_to_instance[inst_id])
+            else:
+                missing_ids.append(inst_id)
+        
+        if missing_ids:
+            raise ValueError(
+                f"Instance IDs not found in {split} split: {missing_ids}"
+            )
+        
+        return instances
     
-    def get_slice50(self, split: str = "test") -> List[Dict]:
-        """Get pre-registered 50 instances for MVP-3."""
-        slice_file = self.config.get("slice50_file")
-        if not slice_file:
-            raise ValueError("slice50_file not configured")
+    def load_instances_file(self, path: str, split: str = "test") -> List[Dict]:
+        """Load instances specified in a file.
         
-        # Load instance IDs
-        with open(slice_file) as f:
-            target_ids = [line.strip() for line in f if line.strip() and not line.startswith("#")]
+        Args:
+            path: Path to file with one instance ID per line
+            split: Dataset split to load from
+            
+        Returns:
+            List of instances in the order specified
+        """
+        if not Path(path).exists():
+            raise FileNotFoundError(f"Instances file not found: {path}")
         
-        if len(target_ids) != 50:
-            raise ValueError(f"Expected 50 IDs in {slice_file}, got {len(target_ids)}")
+        # Load instance IDs from file
+        instance_ids = []
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    instance_ids.append(line)
         
-        # Load dataset and filter
-        dataset = self.load_split(split)
-        id_to_inst = {inst["instance_id"]: inst for inst in dataset}
+        if not instance_ids:
+            raise ValueError(f"No instance IDs found in {path}")
         
-        # Return in order specified by file
-        result = []
-        for tid in target_ids:
-            if tid not in id_to_inst:
-                raise ValueError(f"Instance {tid} not found in {split} split")
-            result.append(id_to_inst[tid])
+        return self.get_instances_by_ids(split, instance_ids)
+    
+    def get_dataset_info(self) -> Dict:
+        """Get metadata about the dataset.
         
-        return result
+        Returns:
+            Dictionary with dataset metadata
+        """
+        return {
+            "dataset_name": self.DATASET_NAME,
+            "revision": self.revision,
+            "expected_counts": self.expected_counts,
+            "required_columns": self.REQUIRED_COLUMNS,
+            "hermetic": self.hermetic,
+        }
     
     def to_task_format(self, instance: Dict) -> Dict:
-        """Convert SWE-bench instance to our task format."""
-        return {
+        """Convert SWE-bench instance to our task format.
+        
+        IMPORTANT: Never expose gold patch to agents!
+        """
+        # Validate required fields
+        required_fields = ["instance_id", "repo", "base_commit", "problem_statement"]
+        for field in required_fields:
+            if field not in instance:
+                raise ValueError(f"Missing required field: {field}")
+        
+        # NEVER expose the gold patch to agents
+        # The patch field exists in the dataset but must not be passed to agents
+        result = {
             "task_id": instance["instance_id"],
             "repo": instance["repo"],
             "base_commit": instance["base_commit"],
@@ -179,3 +198,9 @@ class SWEBenchLiteLoader:
             "created_at": instance.get("created_at", ""),
             "version": instance.get("version", ""),
         }
+        
+        # Ensure patch is not accidentally included
+        if "patch" in result:
+            del result["patch"]
+        
+        return result

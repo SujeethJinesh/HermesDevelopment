@@ -15,7 +15,7 @@ except ImportError:
     exit(1)
 
 # Configuration
-REVISION = os.environ.get("REVISION", "b8b14b3")  # Stable revision
+REVISION = os.environ.get("REVISION", "main")  # Use main branch
 OUT = Path(f"data/swebench_lite/{REVISION}")
 MANIFEST = OUT / "MANIFEST.json"
 

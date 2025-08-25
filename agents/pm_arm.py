@@ -160,41 +160,105 @@ Risk assessment and mitigation strategies for the proposed changes.
         """Handle test request with MCP anchors for output."""
         response = baseline_pb2.TestResponse()
         
-        # Simulate test execution
-        test_output = f"""Running pytest for {request.test_name}...
-========================= test session starts ==========================
-platform darwin -- Python 3.11.6, pytest-7.4.3, pluggy-1.3.0
-rootdir: /tmp/test_repo
-collected 15 items
-
-tests/test_module.py::TestClass::test_edge_case_1 PASSED          [ 6%]
-tests/test_module.py::TestClass::test_edge_case_2 PASSED          [13%]
-tests/test_module.py::TestClass::test_edge_case_3 PASSED          [20%]
-tests/test_module.py::TestClass::test_normal_flow PASSED          [26%]
-tests/test_module.py::TestClass::{request.test_name} PASSED       [33%]
-tests/test_module.py::TestIntegration::test_full_flow PASSED      [40%]
-tests/test_module.py::TestIntegration::test_error_handling PASSED [46%]
-tests/test_module.py::TestRegression::test_issue_123 PASSED       [53%]
-tests/test_module.py::TestRegression::test_issue_456 PASSED       [60%]
-tests/test_module.py::TestPerformance::test_latency PASSED        [66%]
-tests/test_module.py::TestPerformance::test_throughput PASSED     [73%]
-tests/test_module.py::TestSecurity::test_auth PASSED              [80%]
-tests/test_module.py::TestSecurity::test_permissions PASSED       [86%]
-tests/test_module.py::TestSecurity::test_encryption PASSED        [93%]
-tests/test_module.py::TestCleanup::test_resources PASSED          [100%]
-
-========================= 15 passed in 2.34s ===========================
-
-Coverage Report:
-Name                     Stmts   Miss  Cover
---------------------------------------------
-module/__init__.py          12      0   100%
-module/core.py             234     12    95%
-module/utils.py             89      2    98%
-module/validators.py        67      0   100%
---------------------------------------------
-TOTAL                      402     14    97%
-"""
+        # Generate realistic pytest output with failures (SWE-bench typically has failures)
+        # This mimics real pytest -v -rA output which can be VERY large
+        test_lines = [
+            f"Running pytest for {request.test_name}...",
+            "========================= test session starts ==========================",
+            "platform darwin -- Python 3.11.6, pytest-7.4.3, pluggy-1.3.0",
+            f"rootdir: /tmp/{request.repo}",
+            "collected 87 items",
+            ""
+        ]
+        
+        # Add many test results (realistic for SWE-bench)
+        for i in range(87):
+            status = "PASSED" if i % 3 != 0 else "FAILED"
+            test_lines.append(
+                f"tests/test_module_{i//10}.py::TestClass{i//5}::test_case_{i:03d} {status:6} [{i+1:3}%]"
+            )
+            
+            # Add failure details for failed tests (these get LARGE)
+            if status == "FAILED":
+                test_lines.extend([
+                    "",
+                    f"_________________________________ test_case_{i:03d} _________________________________",
+                    f"    def test_case_{i:03d}(self):",
+                    f"        # Test implementation for case {i}",
+                    f"        input_data = prepare_test_data({i})",
+                    f"        expected = calculate_expected({i})",
+                    f"        result = compute_value(input_data)",
+                    f">       assert result == expected_value",
+                    f"E       AssertionError: assert {i*2} == {i*3}",
+                    f"E        +  where {i*2} = compute_value({i})",
+                    f"E        +    where {i} = input_data.value",
+                    f"E        +  and   {i*3} = expected_value",
+                    "",
+                    f"tests/test_module_{i//10}.py:{100+i}: AssertionError",
+                    "------------------------------ Captured stdout ------------------------------",
+                ])
+                
+                # Add LOTS of debug output (realistic for failing tests)
+                for j in range(50):  # 50 lines of debug output per failure
+                    test_lines.append(f"[DEBUG {j:03d}] Processing step {j} for item {i}: intermediate_value={i*j}")
+                
+                test_lines.extend([
+                    "------------------------------ Captured stderr ------------------------------",
+                ])
+                
+                for j in range(30):  # 30 lines of warnings/errors
+                    test_lines.append(f"WARNING: Issue at line {100+j}: deprecated call in function process_{j}")
+                
+                test_lines.extend([
+                    "------------------------------ Captured log --------------------------------",
+                ])
+                
+                for j in range(40):  # 40 lines of structured logs
+                    level = ["DEBUG", "INFO", "WARNING", "ERROR"][j % 4]
+                    test_lines.append(
+                        f"{level:7}  module.core:func_{j}:{200+j} Operation {j} on item {i}: status={'OK' if j%3 else 'WARN'}"
+                    )
+                
+                test_lines.append("")
+        
+        # Add summary section
+        test_lines.extend([
+            "",
+            "=================================== FAILURES ===================================",
+            ""
+        ])
+        
+        # Add detailed failure report
+        for i in range(0, 87, 3):
+            test_lines.extend([
+                f"_________________________ TestClass{i//5}::test_case_{i:03d} _________________________",
+                f"Assertion failed: expected {i*3}, got {i*2}",
+                ""
+            ])
+        
+        # Add coverage report (also can be large)
+        test_lines.extend([
+            "",
+            "---------- coverage: platform darwin, python 3.11.6-final-0 ----------",
+            "Name                                  Stmts   Miss  Cover   Missing",
+            "-------------------------------------------------------------------"
+        ])
+        
+        for i in range(50):  # Many source files
+            miss = i * 3 if i % 5 == 0 else 0
+            cover = 100 if miss == 0 else int(100 * (200 - miss) / 200)
+            test_lines.append(
+                f"src/module_{i:02d}/component.py         200    {miss:4}   {cover:3}%   {', '.join(str(x) for x in range(miss)) if miss else ''}"
+            )
+        
+        test_lines.extend([
+            "-------------------------------------------------------------------",
+            "TOTAL                                 10000    289    97%",
+            "",
+            "========================= 29 failed, 58 passed in 12.34s ========================="
+        ])
+        
+        test_output = "\n".join(test_lines)
         
         # Anchor large test output
         if self._should_anchor(test_output.encode()):

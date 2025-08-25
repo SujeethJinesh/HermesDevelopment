@@ -1,9 +1,10 @@
 .PHONY: lint fmt test prepare-swebench check-toy run-c run-pm clean
 
-# Check for banned toy datasets (exclude legitimate smoke-20 references)
+# Check for banned toy/mock datasets (exclude legitimate smoke-20 references)
 check-toy:
-	@echo "Checking for banned toy/smoke patterns..."
+	@echo "Checking for banned toy/smoke/mock patterns..."
 	@! grep -r --include="*.py" -E "(\btoy-[0-9]|\bsmoke-[0-9])" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "smoke-20" || (echo "ERROR: Found banned patterns" && false)
+	@! grep -ri --include="*.py" -E "(mock_swebench|create_mock|mock.?dataset)" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" || (echo "ERROR: Found mock patterns" && false)
 	@echo "✅ No banned patterns found"
 
 lint: check-toy

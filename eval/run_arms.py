@@ -44,12 +44,9 @@ class ArmRunner:
         seed: int,
         gen_cfg_path: str,
         hermetic: bool = True,
-        toy_tasks: Optional[int] = None,
-        smoke_tasks: Optional[int] = None,
         dataset: Optional[str] = None,
         split: Optional[str] = None,
-        smoke: Optional[int] = None,
-        slice50: bool = False,
+        instances_file: Optional[str] = None,
     ):
         """Initialize arm runner.
 
@@ -58,7 +55,9 @@ class ArmRunner:
             seed: Random seed for determinism
             gen_cfg_path: Path to generation config (must be configs/generation.yaml)
             hermetic: Whether to run in hermetic mode
-            toy_tasks: Number of toy tasks to run (for testing)
+            dataset: Dataset to use (swebench_lite)
+            split: Dataset split (dev or test)
+            instances_file: Path to file with instance IDs to run
         """
         if arm not in self.VALID_ARMS:
             raise ValueError(f"Invalid arm: {arm}. Must be one of {self.VALID_ARMS}")
@@ -66,12 +65,9 @@ class ArmRunner:
         self.arm = arm
         self.seed = seed
         self.hermetic = hermetic
-        self.toy_tasks = toy_tasks
-        self.smoke_tasks = smoke_tasks
         self.dataset = dataset
         self.split = split or "test"
-        self.smoke = smoke
-        self.slice50 = slice50
+        self.instances_file = instances_file
 
         # Enforce config parity - only accept the canonical config
         if gen_cfg_path != "configs/generation.yaml":
@@ -111,22 +107,19 @@ class ArmRunner:
         Returns:
             List of task dictionaries
         """
-        # Check for banned toy/smoke tasks
-        if self.toy_tasks or self.smoke_tasks:
+        # Dataset is required
+        if not self.dataset:
             raise ValueError(
-                "Toy/smoke tasks are forbidden. Use --dataset swebench_lite instead."
+                "Dataset must be specified. Use --dataset swebench_lite"
             )
         
         # Load SWE-bench Lite if specified
         if self.dataset == "swebench_lite":
             loader = SWEBenchLiteLoader()
             
-            if self.slice50:
-                # Pre-registered 50 instances for MVP-3
-                instances = loader.get_slice50(self.split)
-            elif self.smoke:
-                # Deterministic smoke selection
-                instances = loader.get_smoke20(self.split, seed=self.seed)[:self.smoke]
+            if self.instances_file:
+                # Load specific instances from file
+                instances = loader.load_instances_file(self.instances_file, self.split)
             else:
                 # Full split
                 dataset = loader.load_split(self.split)
@@ -631,11 +624,12 @@ def main():
         help="Enable hermetic execution (default: on)",
     )
     
-    # Dataset arguments (replacing toy/smoke)
+    # Dataset arguments
     parser.add_argument(
         "--dataset",
         choices=["swebench_lite"],
-        help="Dataset to use (only swebench_lite allowed)",
+        required=True,
+        help="Dataset to use (swebench_lite)",
     )
     parser.add_argument(
         "--split",
@@ -644,19 +638,10 @@ def main():
         help="Dataset split to use (default: test)",
     )
     parser.add_argument(
-        "--smoke",
-        type=int,
-        metavar="N",
-        help="Run first N tasks from smoke-20 selection",
+        "--instances_file",
+        type=str,
+        help="Path to file with instance IDs to run (one per line)",
     )
-    parser.add_argument(
-        "--slice50",
-        action="store_true",
-        help="Use pre-registered 50 instances for MVP-3",
-    )
-    
-    # Deprecated arguments (will raise error)
-    parser.add_argument("--toy", type=int, help=argparse.SUPPRESS)
 
     # Parse arguments
     args = parser.parse_args()
@@ -668,11 +653,6 @@ def main():
         print(f"ERROR: {e}", file=sys.stderr)
         return 1
 
-    # Check for banned toy argument
-    if hasattr(args, 'toy') and args.toy:
-        print("ERROR: --toy is banned. Use --dataset swebench_lite instead.", file=sys.stderr)
-        return 1
-    
     # Create and run evaluation
     try:
         runner = ArmRunner(
@@ -682,8 +662,7 @@ def main():
             hermetic=(args.hermetic == "on"),
             dataset=args.dataset,
             split=args.split,
-            smoke=args.smoke,
-            slice50=args.slice50,
+            instances_file=args.instances_file,
         )
         runner.run()
         return 0

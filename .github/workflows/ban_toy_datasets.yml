@@ -12,26 +12,32 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     
-    - name: Check for banned toy/smoke patterns
+    - name: Check for banned toy/smoke/mock patterns
       run: |
-        echo "Checking for banned toy/smoke patterns in code..."
+        echo "Checking for banned toy/smoke/mock patterns in code..."
         
-        # Check for toy/smoke in eval, tests, scripts (excluding comments)
-        if grep -r --include="*.py" -E "(toy-[0-9]|smoke-[0-9])" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#"; then
-          echo "ERROR: Found banned toy/smoke patterns in code"
+        # Check for any toy/smoke patterns (stricter - no exceptions)
+        if grep -r --include="*.py" -E "(toy|smoke|mock)" eval/ tests/ scripts/ agents/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "__pycache__"; then
+          echo "ERROR: Found banned toy/smoke/mock patterns in code"
           exit 1
         fi
         
-        # Check for toy task generation
-        if grep -r --include="*.py" "toy_tasks" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "# Deprecated"; then
-          echo "ERROR: Found toy_tasks references"
+        # Check for vendored dataset content
+        if [ -d "data/swebench_lite/" ]; then
+          echo "ERROR: Found vendored dataset content in data/swebench_lite/"
           exit 1
         fi
         
-        # Check for smoke task generation (old style)
-        if grep -r --include="*.py" "smoke_tasks" eval/ tests/ scripts/ 2>/dev/null | grep -v "^[[:space:]]*#" | grep -v "# Deprecated"; then
-          echo "ERROR: Found smoke_tasks references"
+        # Check for any create_mock files
+        if find scripts/ tests/ -name "*create_mock*" -o -name "*mock_*" 2>/dev/null | grep -v "__pycache__"; then
+          echo "ERROR: Found mock generator files"
           exit 1
         fi
         
-        echo "✅ No banned toy/smoke patterns found"
+        # Ensure no --smoke CLI options
+        if grep -r --include="*.py" "\-\-smoke" eval/ 2>/dev/null; then
+          echo "ERROR: Found --smoke CLI option (use --instances_file instead)"
+          exit 1
+        fi
+        
+        echo "✅ No banned toy/smoke/mock patterns found"

@@ -12,18 +12,23 @@ class SWEBenchBridge:
     def write_predictions(
         predictions: List[Dict[str, str]],
         output_path: str,
-        model_name: Optional[str] = "hermes"
+        model_name: str = "hermes"
     ):
         """
-        Write predictions in SWE-bench harness format.
+        Write predictions in official SWE-bench harness format.
+        
+        The official format requires EXACTLY these three fields:
+        - instance_id: The task identifier
+        - model_name_or_path: Model identifier for tracking
+        - model_patch: The generated patch as a diff string
         
         Args:
             predictions: List of dicts with 'instance_id' and 'model_patch'
             output_path: Path to write predictions.jsonl
-            model_name: Optional model name to include
+            model_name: Model name (required for official format)
         
         Expected format per line:
-        {"instance_id": "<id>", "model_patch": "<unified diff>", "model_name": "<name>"}
+        {"instance_id": "<id>", "model_name_or_path": "<name>", "model_patch": "<diff>"}
         """
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -36,15 +41,12 @@ class SWEBenchBridge:
                 if "model_patch" not in pred:
                     raise ValueError(f"Missing model_patch for {pred['instance_id']}")
                 
-                # Build harness-compatible record
+                # Build harness-compatible record with EXACTLY the required fields
                 record = {
                     "instance_id": pred["instance_id"],
+                    "model_name_or_path": model_name,  # Official field name
                     "model_patch": pred["model_patch"],
                 }
-                
-                # Add optional model name
-                if model_name:
-                    record["model_name"] = model_name
                 
                 # Write as JSONL
                 f.write(json.dumps(record) + "\n")
@@ -86,7 +88,7 @@ class SWEBenchBridge:
     
     @staticmethod
     def validate_predictions_format(predictions_path: str) -> bool:
-        """Validate predictions file matches harness format."""
+        """Validate predictions file matches official harness format."""
         try:
             with open(predictions_path) as f:
                 for line_no, line in enumerate(f, 1):
@@ -99,16 +101,23 @@ class SWEBenchBridge:
                         print(f"Line {line_no}: Invalid JSON - {e}")
                         return False
                     
-                    # Check required fields
-                    if "instance_id" not in record:
-                        print(f"Line {line_no}: Missing instance_id")
+                    # Check for EXACTLY the required fields
+                    required_fields = {"instance_id", "model_name_or_path", "model_patch"}
+                    actual_fields = set(record.keys())
+                    
+                    if actual_fields != required_fields:
+                        print(f"Line {line_no}: Invalid fields. Expected {required_fields}, got {actual_fields}")
                         return False
                     
-                    if "model_patch" not in record:
-                        print(f"Line {line_no}: Missing model_patch")
+                    # Validate types
+                    if not isinstance(record["instance_id"], str):
+                        print(f"Line {line_no}: instance_id must be string")
                         return False
                     
-                    # Validate patch is string
+                    if not isinstance(record["model_name_or_path"], str):
+                        print(f"Line {line_no}: model_name_or_path must be string")
+                        return False
+                    
                     if not isinstance(record["model_patch"], str):
                         print(f"Line {line_no}: model_patch must be string")
                         return False
