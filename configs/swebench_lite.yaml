@@ -1,7 +1,7 @@
 dataset:
-  name: princeton-nlp/SWE-bench_Lite
+  name: SWE-bench/SWE-bench_Lite
   # Official dataset from HuggingFace
-  # https://huggingface.co/datasets/princeton-nlp/SWE-bench_Lite
+  # https://huggingface.co/datasets/SWE-bench/SWE-bench_Lite
   revision: main
   local_path: data/swebench_lite/main/
   split: test

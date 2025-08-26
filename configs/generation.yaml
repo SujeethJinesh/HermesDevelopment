@@ -54,7 +54,7 @@ benchmarks:
 
 mcp:
   # Inline threshold - payloads larger than this are anchored
-  inline_max_bytes: 32768  # 32 KB default (spec allows up to 256 KB)
+  inline_max_bytes: 1024  # 1 KB - aggressive for T1.2 acceptance testing
   
   # TTL settings for different content types
   ttl_logs_hours: 24

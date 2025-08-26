@@ -4,21 +4,26 @@
 import hashlib
 import time
 from typing import Dict, Optional, Tuple
+from pathlib import Path
 
 from mcp.client import MCPClient
 from mcp.server import MCPServer
 from proto import baseline_pb2
+from agents.real_tester import RealTester
 
 
 class PMAgent:
     """Agent for Arm PM (Protobuf + MCP Anchors)."""
 
-    def __init__(self, mcp_server: Optional[MCPServer] = None, config: Optional[Dict] = None):
+    def __init__(self, mcp_server: Optional[MCPServer] = None, config: Optional[Dict] = None, scratch_dir: Optional[Path] = None):
         """Initialize PM agent with MCP support."""
         self.mcp_server = mcp_server or MCPServer()
         self.mcp_client = MCPClient(self.mcp_server)
         self.bytes_saved = 0
         self.anchors_created = 0
+        
+        # Initialize real tester
+        self.real_tester = RealTester(scratch_dir=scratch_dir)
         
         # Load config settings
         config = config or {}
@@ -159,10 +164,32 @@ Risk assessment and mitigation strategies for the proposed changes.
         """Handle test request with MCP anchors for output."""
         response = baseline_pb2.TestResponse()
         
-        # In production, this would use real pytest output from running tests
-        # For T1.2 acceptance, this must demonstrate actual bytes savings
-        # Placeholder for now - should be replaced with real test runner integration
-        test_output = f"Test {request.test_name} placeholder output\n"
+        # Build instance dict for real_tester from request
+        instance = {
+            "repo": request.repo if request.repo else "test-repo",
+            "base_commit": request.base_commit if request.base_commit else "HEAD",
+            "test_patch": request.test_patch if hasattr(request, 'test_patch') else "",
+            "patch": request.patch if hasattr(request, 'patch') else "",
+            "FAIL_TO_PASS": [request.test_name] if request.test_name else [],
+            "environment_setup_commit": None
+        }
+        
+        # Run real tests using RealTester
+        try:
+            passed, test_output, duration_ms = self.real_tester.run_test_for_instance(
+                instance, 
+                apply_patch=bool(request.patch) if hasattr(request, 'patch') else False
+            )
+        except RuntimeError as e:
+            # If pytest is not available, return error
+            test_output = str(e)
+            passed = False
+            duration_ms = 0
+        except Exception as e:
+            # Other errors
+            test_output = f"Test execution failed: {str(e)}"
+            passed = False
+            duration_ms = 0
         
         # Only anchor if output exceeds threshold
         if self._should_anchor(test_output.encode()):
@@ -171,8 +198,8 @@ Risk assessment and mitigation strategies for the proposed changes.
         else:
             response.output = test_output
             
-        response.passed = False  # Conservative default
-        response.duration_ms = 0
+        response.passed = passed
+        response.duration_ms = duration_ms
         return response
 
     def get_stats(self) -> Dict:
@@ -182,3 +209,8 @@ Risk assessment and mitigation strategies for the proposed changes.
             "bytes_saved": self.bytes_saved,
             "mcp_stats": self.mcp_server.get_stats() if self.mcp_server else {}
         }
+    
+    def cleanup(self):
+        """Clean up resources."""
+        if hasattr(self, 'real_tester'):
+            self.real_tester.cleanup()

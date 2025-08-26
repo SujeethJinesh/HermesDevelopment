@@ -56,7 +56,7 @@ class SWEBenchBridge:
     @staticmethod
     def generate_harness_command(
         predictions_path: str,
-        dataset_name: str = "princeton-nlp/SWE-bench_Lite",
+        dataset_name: str = "SWE-bench/SWE-bench_Lite",
         split: str = "test",
         instance_ids_file: Optional[str] = None,
         max_workers: int = 8,

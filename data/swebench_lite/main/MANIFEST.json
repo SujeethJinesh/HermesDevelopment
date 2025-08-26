@@ -1,0 +1,9 @@
+{
+  "dataset_name": "SWE-bench/SWE-bench_Lite",
+  "revision": "main",
+  "local_path": "data/swebench_lite/main",
+  "splits": {
+    "dev": 23,
+    "test": 300
+  }
+}

@@ -17,9 +17,9 @@ rev = os.environ["REVISION"]
 out = Path(os.environ["OUT"])
 
 # Download from HF once (internet allowed in this script only)
-print(f"Loading princeton-nlp/SWE-bench_Lite at revision {rev}")
-ds_dev  = load_dataset("princeton-nlp/SWE-bench_Lite", split="dev",  revision=rev)
-ds_test = load_dataset("princeton-nlp/SWE-bench_Lite", split="test", revision=rev)
+print(f"Loading SWE-bench/SWE-bench_Lite at revision {rev}")
+ds_dev  = load_dataset("SWE-bench/SWE-bench_Lite", split="dev",  revision=rev)
+ds_test = load_dataset("SWE-bench/SWE-bench_Lite", split="test", revision=rev)
 
 print(f"Dev split: {len(ds_dev)} instances")
 print(f"Test split: {len(ds_test)} instances")
@@ -39,7 +39,7 @@ def dir_hash(p):
     return h.hexdigest()
 
 manifest = {
-    "dataset_name": "princeton-nlp/SWE-bench_Lite",
+    "dataset_name": "SWE-bench/SWE-bench_Lite",
     "revision": rev,
     "local_path": str(out),
     "splits": {

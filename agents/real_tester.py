@@ -202,9 +202,11 @@ class RealTester:
             passed = False
             
         except FileNotFoundError:
-            # Python/pytest not available - generate realistic output for demo
-            output = self._generate_realistic_test_output(repo_path, test_files)
-            passed = False
+            # Pytest must be available for real testing
+            raise RuntimeError(
+                "pytest not found. Install pytest to run real tests. "
+                "Cannot use synthetic fallback in production."
+            )
             
         except Exception as e:
             output = f"Test execution failed with error: {str(e)}"
@@ -215,125 +217,6 @@ class RealTester:
         
         return passed, output, duration_ms
     
-    def _generate_realistic_test_output(self, repo_path: Path, test_files: List[str]) -> str:
-        """Generate realistic pytest output when pytest is not available.
-        
-        This is only used for demonstration when pytest cannot be run.
-        In production, actual pytest must be used.
-        """
-        if not test_files:
-            test_files = ["tests/test_default.py"]
-        
-        # Generate large realistic output to trigger MCP anchoring (>32KB)
-        output_lines = [
-            "=" * 80,
-            "test session starts",
-            "=" * 80,
-            f"platform darwin -- Python 3.11.6, pytest-7.4.3, pluggy-1.3.0",
-            f"rootdir: {repo_path}",
-            f"collected {len(test_files) * 5} items",
-            "",
-        ]
-        
-        # Add detailed test results with verbose output
-        for test_file in test_files:
-            for i in range(5):  # Multiple tests per file
-                output_lines.extend([
-                    f"\n{test_file}::TestClass::test_case_{i:03d} ",
-                    f"SETUP    C test_case_{i:03d}",
-                    f"        fixture_setup...",
-                    f"        preparing test data...",
-                    f"        initializing components...",
-                ])
-                
-                # Add verbose test execution
-                for j in range(20):  # Lots of debug output
-                    output_lines.append(f"        [DEBUG {j:03d}] Processing step {j}: value={j*100}")
-                
-                output_lines.extend([
-                    f"FAILED",
-                    f"TEARDOWN C test_case_{i:03d}",
-                    "",
-                    "=" * 80,
-                    "FAILURES",
-                    "=" * 80,
-                    f"________________ TestClass.test_case_{i:03d} ________________",
-                    "",
-                    "    def test_case(self):",
-                    "        data = prepare_test_data()",
-                    "        result = process(data)",
-                    ">       assert result.status == 'success'",
-                    "E       AssertionError: assert 'failed' == 'success'",
-                    "E         - success",
-                    "E         + failed",
-                    "",
-                    f"{test_file}:{100 + i*10}: AssertionError",
-                    "",
-                    "---------------------------- Captured stdout call ----------------------------",
-                ])
-                
-                # Add lots of captured output
-                for j in range(50):
-                    output_lines.append(f"Processing item {j}: status=pending, value={j*2}")
-                
-                output_lines.extend([
-                    "---------------------------- Captured stderr call ----------------------------",
-                ])
-                
-                for j in range(30):
-                    output_lines.append(f"WARNING: Deprecated call at line {j}: use new API instead")
-                
-                output_lines.extend([
-                    "----------------------------- Captured log call ------------------------------",
-                ])
-                
-                for j in range(40):
-                    level = ["DEBUG", "INFO", "WARNING", "ERROR"][j % 4]
-                    output_lines.append(
-                        f"{level:7} module.core:process:{200+j} Operation {j}: {'OK' if j%3 else 'WARN'}"
-                    )
-                
-                output_lines.append("")
-        
-        # Add detailed summary with coverage
-        output_lines.extend([
-            "",
-            "=" * 80,
-            "short test summary info",
-            "=" * 80,
-        ])
-        
-        for test_file in test_files:
-            for i in range(5):
-                output_lines.append(f"FAILED {test_file}::TestClass::test_case_{i:03d} - AssertionError")
-        
-        # Add coverage report (can be large)
-        output_lines.extend([
-            "",
-            "---------- coverage: platform darwin, python 3.11.6-final-0 ----------",
-            "Name                                                  Stmts   Miss  Cover   Missing",
-            "-" * 85,
-        ])
-        
-        # Add many source files for coverage
-        for i in range(100):  # Many files to make output large
-            module = f"src/module_{i:03d}/component.py"
-            stmts = 200 + (i * 3)
-            miss = i * 2 if i % 3 == 0 else 0
-            cover = 100 if miss == 0 else int(100 * (stmts - miss) / stmts)
-            missing = ", ".join(str(x) for x in range(100, 100 + miss)) if miss else ""
-            output_lines.append(
-                f"{module:<50} {stmts:6} {miss:6} {cover:5}%   {missing[:30]}"
-            )
-        
-        output_lines.extend([
-            "-" * 85,
-            "TOTAL                                                 25000    892    96%",
-            "",
-            f"===================== {len(test_files) * 5} failed in 12.34s ====================="
-        ])
-        
-        return "\n".join(output_lines)
     
     def cleanup(self):
         """Clean up all temporary files."""
