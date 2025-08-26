@@ -12,8 +12,8 @@ def load_metrics(jsonl_path: Path):
     vals = {
         "bytes_per_solve": [],
         "pass_at_1": [],
-        "message_path_ms_p95": [],
-        "mcp_deref_ms_p95": [],
+        "message_path_ms": [],
+        "mcp_deref_ms": [],
     }
     
     try:
@@ -23,13 +23,47 @@ def load_metrics(jsonl_path: Path):
                     obj = json.loads(line)
                 except Exception:
                     continue
-                for k in vals:
-                    if k in obj:
-                        vals[k].append(obj[k])
+                
+                # Calculate bytes_per_solve from bytes_in + bytes_out
+                if "bytes_in" in obj and "bytes_out" in obj:
+                    vals["bytes_per_solve"].append(obj["bytes_in"] + obj["bytes_out"])
+                
+                # Track pass rate
+                if "pass" in obj:
+                    vals["pass_at_1"].append(1.0 if obj["pass"] else 0.0)
+                
+                # Track message path latency
+                if "message_path_ms" in obj:
+                    vals["message_path_ms"].append(obj["message_path_ms"])
+                
+                # MCP deref (if exists)
+                if "mcp_deref_ms" in obj:
+                    vals["mcp_deref_ms"].append(obj["mcp_deref_ms"])
+                    
     except FileNotFoundError:
         return None
+    
+    # Calculate aggregates
+    result = {}
+    result["bytes_per_solve"] = mean(vals["bytes_per_solve"]) if vals["bytes_per_solve"] else None
+    result["pass_at_1"] = mean(vals["pass_at_1"]) if vals["pass_at_1"] else None
+    
+    # Calculate p95 for latencies
+    if vals["message_path_ms"]:
+        sorted_mp = sorted(vals["message_path_ms"])
+        idx = int(len(sorted_mp) * 0.95)
+        result["message_path_ms_p95"] = sorted_mp[min(idx, len(sorted_mp)-1)]
+    else:
+        result["message_path_ms_p95"] = None
+    
+    if vals["mcp_deref_ms"]:
+        sorted_mcp = sorted(vals["mcp_deref_ms"])
+        idx = int(len(sorted_mcp) * 0.95)
+        result["mcp_deref_ms_p95"] = sorted_mcp[min(idx, len(sorted_mcp)-1)]
+    else:
+        result["mcp_deref_ms_p95"] = None
                         
-    return {k: (mean(v) if v else None) for k, v in vals.items()}
+    return result
 
 
 def main(c_dir: str, pm_dir: str):

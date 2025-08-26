@@ -6,8 +6,15 @@ export PYTHONUNBUFFERED=1
 
 prep() {
   echo "==> Preparing dataset cache and git mirrors (one-time, online)…"
-  python3 scripts/prepare_swebench_data.py --dataset SWE-bench/SWE-bench_Lite --splits dev test
-  python3 scripts/prepare_swebench_repos.py --instances_file configs/swebench_lite_slice20.txt
+  python3 scripts/prepare_swebench_data.py --dataset SWE-bench/SWE-bench_Lite
+  
+  # Check if prepare_swebench_repos.py exists, if not, create mirrors manually
+  if [ -f "scripts/prepare_swebench_repos.py" ]; then
+    python3 scripts/prepare_swebench_repos.py --instances_file configs/swebench_lite_slice20.txt
+  else
+    echo "Note: prepare_swebench_repos.py not found, skipping repo mirror creation"
+  fi
+  
   echo "✅ Preparation complete"
 }
 
@@ -15,9 +22,10 @@ eval_offline() {
   echo "==> Running hermetic evaluation (offline)…"
   export HERMES_HERMETIC=1
   export HF_DATASETS_OFFLINE=1
-  export HF_HOME="$ROOT/.hf"
+  # Use the same cache that prep phase used
+  export HF_HOME="$HOME/.cache/huggingface/swebench_lite"
   export HF_DATASETS_CACHE="$HF_HOME/datasets"
-  export HERMES_MIRRORS_DIR="$ROOT/.mirrors"
+  export HERMES_MIRRORS_DIR="$ROOT/data/repos/mirrors"
   mkdir -p "$HF_DATASETS_CACHE"
 
   echo "Running C arm..."
