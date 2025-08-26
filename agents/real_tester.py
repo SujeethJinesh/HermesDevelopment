@@ -99,22 +99,42 @@ class RealTester:
         Returns:
             Path to the checked out repository
         """
+        # Use hermetic repo manager if available and in hermetic mode
+        if os.environ.get("HERMES_HERMETIC") == "1":
+            try:
+                from env.hermetic_repos import HermeticRepoManager
+                manager = HermeticRepoManager()
+                
+                # Verify offline mode
+                if not manager.verify_offline():
+                    print("Warning: Not in full offline mode")
+                
+                # Checkout from local mirror
+                success, repo_path, message = manager.checkout_repo(
+                    repo_name, base_commit, work_dir
+                )
+                
+                if success:
+                    return repo_path
+                else:
+                    print(f"Hermetic checkout failed: {message}")
+                    # Fall through to simulation
+                    
+            except (ImportError, FileNotFoundError) as e:
+                print(f"Hermetic repos not available: {e}")
+                # Fall through to simulation
+        
+        # Fallback: create simulated repo structure for testing
         repo_path = work_dir / "repo"
-        
-        # For hermetic runs, we would use a local mirror
-        # For demonstration, create a simulated repo structure
         repo_path.mkdir(parents=True, exist_ok=True)
-        
-        # In production with local mirrors:
-        # git clone --no-checkout file:///mirrors/{repo_name}.git {repo_path}
-        # cd {repo_path} && git checkout {base_commit}
         
         # Create marker for tracking
         marker = repo_path / ".hermes_checkout"
         marker.write_text(json.dumps({
             "repo": repo_name,
             "commit": base_commit,
-            "setup": setup_commit
+            "setup": setup_commit,
+            "hermetic": os.environ.get("HERMES_HERMETIC", "0")
         }))
         
         return repo_path
