@@ -107,7 +107,10 @@ class RealTester:
                 
                 # Verify offline mode
                 if not manager.verify_offline():
-                    print("Warning: Not in full offline mode")
+                    raise RuntimeError(
+                        "Hermetic mode requires offline execution. "
+                        "Set HF_DATASETS_OFFLINE=1 and HERMES_HERMETIC=1"
+                    )
                 
                 # Checkout from local mirror
                 success, repo_path, message = manager.checkout_repo(
@@ -117,14 +120,27 @@ class RealTester:
                 if success:
                     return repo_path
                 else:
-                    print(f"Hermetic checkout failed: {message}")
-                    # Fall through to simulation
+                    # Hard fail in hermetic mode - no fallback to simulation
+                    raise RuntimeError(
+                        f"Hermetic checkout failed for {repo_name}@{base_commit}: {message}\n"
+                        f"Run scripts/prepare_swebench_repos.py to prepare local mirrors."
+                    )
                     
-            except (ImportError, FileNotFoundError) as e:
-                print(f"Hermetic repos not available: {e}")
-                # Fall through to simulation
+            except ImportError as e:
+                # Hard fail if hermetic infrastructure not available
+                raise RuntimeError(
+                    f"Hermetic mode requires env.hermetic_repos module: {e}\n"
+                    f"Ensure env/hermetic_repos.py exists and imports correctly."
+                )
+            except FileNotFoundError as e:
+                # Hard fail if manifest or mirrors missing
+                raise RuntimeError(
+                    f"Hermetic repos not prepared: {e}\n"
+                    f"Run scripts/prepare_swebench_repos.py to create local mirrors."
+                )
         
-        # Fallback: create simulated repo structure for testing
+        # Non-hermetic mode: create simulated repo structure for testing only
+        # This is acceptable for development but NOT for acceptance testing
         repo_path = work_dir / "repo"
         repo_path.mkdir(parents=True, exist_ok=True)
         
@@ -134,7 +150,8 @@ class RealTester:
             "repo": repo_name,
             "commit": base_commit,
             "setup": setup_commit,
-            "hermetic": os.environ.get("HERMES_HERMETIC", "0")
+            "hermetic": "0",  # Explicitly mark as non-hermetic
+            "warning": "SIMULATED CHECKOUT - NOT FOR PRODUCTION"
         }))
         
         return repo_path
