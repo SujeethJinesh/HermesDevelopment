@@ -206,10 +206,17 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# HERMES specific
+# --- HERMES: local artifacts & caches (must never be tracked) ---
+runs/
 scratch/
+data/
+.hf/
+.cache/
+.mirrors/
 manifest_*.json
 metrics.json
+*.parquet
+*.jsonl
 
 # Dataset artifacts (use cache only, don't commit)
 data/swebench_lite/
@@ -217,3 +224,13 @@ data/**
 
 # Run artifacts (publish as CI artifacts, don't commit)
 runs/**
+
+# If your venv is named "env" or "venv", prefer ".venv/" to avoid colliding
+# with the tracked Python module under env/*.py in this repo.
+.venv/
+venv/
+
+# Keep our tracked Python helpers under env/*.py while ignoring other junk
+# (order matters; re-include .py after ignoring the directory):
+env/**
+!env/*.py

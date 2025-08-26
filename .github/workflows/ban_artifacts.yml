@@ -1,32 +1,46 @@
-name: Ban Artifacts
-on: pull_request
+name: Ban committed artifacts
+
+on:
+  pull_request:
+    branches: [ main, 'sujinesh/*' ]
+  push:
+    branches: [ main, 'sujinesh/*' ]
 
 jobs:
-  check:
+  ban-artifacts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
+
       - name: Fail if tracked artifacts are present
         run: |
-          set -euo pipefail
-          echo "Checking for tracked artifacts under runs/ or data/..."
-          if git ls-files | grep -E '^(runs/|data/)'; then
-            echo "::error::Detected tracked artifacts under runs/ or data/. Remove them and add to .gitignore."
+          echo "Checking for tracked artifacts..."
+          bad=$(
+            git ls-files \
+              | grep -E '^(runs/|data/|\.hf/|\.mirrors/|scratch/)' || true
+          )
+          if [ -n "$bad" ]; then
+            echo "ERROR: Found tracked artifacts:"
+            echo "$bad"
+            echo ""
+            echo "Please untrack with:"
+            echo "  git rm -r --cached runs/ data/ .hf/ .mirrors/ scratch/"
+            echo "  echo -e 'runs/\ndata/\n.hf/\n.mirrors/\nscratch/' >> .gitignore"
             exit 1
           fi
-          echo "✅ No tracked artifacts found"
-      
-      - name: Check .gitignore includes runs and data
+
+      - name: Fail if toy/smoke flags appear in source (excluding tests/docs)
         run: |
-          if ! grep -q "^runs/" .gitignore; then
-            echo "::error::.gitignore must include 'runs/' to prevent tracking run artifacts"
+          echo "Checking for toy/smoke patterns..."
+          if grep -R -nE '(^|[^a-zA-Z])(--toy|--smoke|toy_tasks|smoke_test)($|[^a-zA-Z])' \
+            . \
+            --exclude-dir=.git \
+            --exclude-dir=tests \
+            --exclude-dir=docs \
+            --exclude='*.md' \
+            --exclude='.github/workflows/*' \
+            || false; then
+            echo "ERROR: Found toy/smoke patterns in source."
+            echo "Use --instances_file configs/swebench_lite_slice20.txt instead."
             exit 1
           fi
-          if ! grep -q "^data/" .gitignore; then
-            echo "::error::.gitignore must include 'data/' to prevent tracking dataset artifacts"
-            exit 1
-          fi
-          echo "✅ .gitignore properly configured"
