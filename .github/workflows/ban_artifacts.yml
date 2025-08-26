@@ -17,3 +17,13 @@ jobs:
             echo "$bad"
             exit 1
           fi
+      
+      - name: Check for demo files
+        run: |
+          set -e
+          demos=$(git ls-files | egrep '(demo_.*\.py|.*_minimal.*\.py)' | grep -v '^tests/' || true)
+          if [ -n "$demos" ]; then
+            echo "::error ::Repository contains demo/minimal files outside tests:"
+            echo "$demos"
+            exit 1
+          fi

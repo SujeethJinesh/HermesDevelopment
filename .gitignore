@@ -236,7 +236,6 @@ scratch/
 .venv/
 venv/
 
-# Keep our tracked Python helpers under env/*.py while ignoring other junk
-# (order matters; re-include .py after ignoring the directory):
+# Keep only the hermetic repos manager in env/
 env/**
-!env/*.py
+!env/hermetic_repos.py
