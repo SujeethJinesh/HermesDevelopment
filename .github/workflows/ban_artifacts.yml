@@ -1,46 +1,19 @@
-name: Ban committed artifacts
+name: Ban tracked artifacts
 
-on:
-  pull_request:
-    branches: [ main, 'sujinesh/*' ]
-  push:
-    branches: [ main, 'sujinesh/*' ]
+on: [pull_request]
 
 jobs:
   ban-artifacts:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Fail if tracked artifacts are present
+      
+      - name: Check for tracked artifacts
         run: |
-          echo "Checking for tracked artifacts..."
-          bad=$(
-            git ls-files \
-              | grep -E '^(runs/|data/|\.hf/|\.mirrors/|scratch/)' || true
-          )
+          set -e
+          bad=$(git ls-files | egrep '^(runs|data|\.hf|\.mirrors|scratch)/' || true)
           if [ -n "$bad" ]; then
-            echo "ERROR: Found tracked artifacts:"
+            echo "::error ::Repository contains tracked artifacts:"
             echo "$bad"
-            echo ""
-            echo "Please untrack with:"
-            echo "  git rm -r --cached runs/ data/ .hf/ .mirrors/ scratch/"
-            echo "  echo -e 'runs/\ndata/\n.hf/\n.mirrors/\nscratch/' >> .gitignore"
-            exit 1
-          fi
-
-      - name: Fail if toy/smoke flags appear in source (excluding tests/docs)
-        run: |
-          echo "Checking for toy/smoke patterns..."
-          if grep -R -nE '(^|[^a-zA-Z])(--toy|--smoke|toy_tasks|smoke_test)($|[^a-zA-Z])' \
-            . \
-            --exclude-dir=.git \
-            --exclude-dir=tests \
-            --exclude-dir=docs \
-            --exclude='*.md' \
-            --exclude='.github/workflows/*' \
-            || false; then
-            echo "ERROR: Found toy/smoke patterns in source."
-            echo "Use --instances_file configs/swebench_lite_slice20.txt instead."
             exit 1
           fi

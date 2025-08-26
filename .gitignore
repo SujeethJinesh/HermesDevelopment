@@ -219,11 +219,17 @@ metrics.json
 *.jsonl
 
 # Dataset artifacts (use cache only, don't commit)
-data/swebench_lite/
+data/
 data/**
 
-# Run artifacts (publish as CI artifacts, don't commit)
+# Run artifacts (publish as CI artifacts, don't commit)  
+runs/
 runs/**
+
+# Hermetic execution artifacts
+.hf/
+.mirrors/
+scratch/
 
 # If your venv is named "env" or "venv", prefer ".venv/" to avoid colliding
 # with the tracked Python module under env/*.py in this repo.

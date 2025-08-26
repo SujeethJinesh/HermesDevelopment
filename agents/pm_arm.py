@@ -22,8 +22,8 @@ class PMAgent:
         self.bytes_saved = 0
         self.anchors_created = 0
         
-        # Initialize real tester
-        self.real_tester = RealTester(scratch_dir=scratch_dir)
+        # Initialize real tester with MCP client for resolving anchors
+        self.real_tester = RealTester(scratch_dir=scratch_dir, mcp_client=self.mcp_client)
         
         # Load config settings
         config = config or {}

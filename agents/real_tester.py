@@ -12,20 +12,22 @@ import os
 import json
 import time
 from pathlib import Path
-from typing import Dict, Tuple, Optional, List
+from typing import Dict, Tuple, Optional, List, Union
 
 
 class RealTester:
     """Runs real tests against SWE-bench repositories."""
     
-    def __init__(self, scratch_dir: Optional[Path] = None):
+    def __init__(self, scratch_dir: Optional[Path] = None, mcp_client=None):
         """Initialize the real tester.
         
         Args:
             scratch_dir: Directory for temporary checkouts and test runs
+            mcp_client: Optional MCP client for resolving anchors
         """
         self.scratch_dir = scratch_dir or Path(tempfile.mkdtemp(prefix="hermes_test_"))
         self.scratch_dir.mkdir(parents=True, exist_ok=True)
+        self.mcp_client = mcp_client
     
     def run_test_for_instance(
         self,
@@ -156,19 +158,51 @@ class RealTester:
         
         return repo_path
     
+    def _load_patch_bytes(self, patch_or_ref: Union[str, bytes]) -> bytes:
+        """Load patch content, resolving MCP refs if needed.
+        
+        Args:
+            patch_or_ref: Either patch content or MCP reference
+            
+        Returns:
+            Actual patch bytes
+        """
+        # If already bytes, return as-is
+        if isinstance(patch_or_ref, bytes):
+            return patch_or_ref
+        
+        # Check if it's an MCP reference
+        if isinstance(patch_or_ref, str) and patch_or_ref.startswith("mcp://"):
+            if not self.mcp_client:
+                raise RuntimeError(f"MCP ref provided but no MCP client configured: {patch_or_ref}")
+            
+            # Resolve the MCP anchor to get actual patch content
+            success, data = self.mcp_client.resolve(patch_or_ref)
+            if not success or data is None:
+                raise RuntimeError(f"Failed to resolve MCP ref: {patch_or_ref}")
+            
+            return data
+        
+        # Regular string patch content
+        return patch_or_ref.encode("utf-8")
+    
     def _apply_patch(self, repo_path: Path, patch: str) -> None:
         """Apply a patch to the repository.
         
         Args:
             repo_path: Path to the repository
-            patch: Patch content to apply
+            patch: Patch content or MCP reference to apply
         """
         if not patch:
             return
         
+        # Resolve MCP references if needed
+        patch_bytes = self._load_patch_bytes(patch)
+        patch_text = patch_bytes.decode("utf-8")
+        
         # Write patch to temporary file
         patch_file = repo_path / "temp.patch"
-        patch_file.write_text(patch)
+        patch_file.write_text(patch_text)
         
         # Apply patch using git
         try:
@@ -187,7 +221,7 @@ class RealTester:
         except FileNotFoundError:
             # Git not available, create marker for testing
             applied_marker = repo_path / ".patches_applied"
-            applied_marker.write_text(f"Applied patch:\n{patch[:100]}...")
+            applied_marker.write_text(f"Applied patch:\n{patch_text[:100]}...")
         finally:
             if patch_file.exists():
                 patch_file.unlink()
