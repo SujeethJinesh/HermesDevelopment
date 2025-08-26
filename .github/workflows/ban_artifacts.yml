@@ -1,0 +1,32 @@
+name: Ban Artifacts
+on: pull_request
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Fail if tracked artifacts are present
+        run: |
+          set -euo pipefail
+          echo "Checking for tracked artifacts under runs/ or data/..."
+          if git ls-files | grep -E '^(runs/|data/)'; then
+            echo "::error::Detected tracked artifacts under runs/ or data/. Remove them and add to .gitignore."
+            exit 1
+          fi
+          echo "✅ No tracked artifacts found"
+      
+      - name: Check .gitignore includes runs and data
+        run: |
+          if ! grep -q "^runs/" .gitignore; then
+            echo "::error::.gitignore must include 'runs/' to prevent tracking run artifacts"
+            exit 1
+          fi
+          if ! grep -q "^data/" .gitignore; then
+            echo "::error::.gitignore must include 'data/' to prevent tracking dataset artifacts"
+            exit 1
+          fi
+          echo "✅ .gitignore properly configured"

@@ -91,7 +91,7 @@ if [ "$1" = "eval" ]; then
     echo "=== Evaluation Complete ==="
     echo ""
     echo "Checking acceptance criteria..."
-    python3 scripts/check_acceptance.py
+    python3 scripts/check_acceptance_simple.py
     
 elif [ "$1" = "prep" ]; then
     # PREPARATION MODE (requires network)
