@@ -3,7 +3,7 @@
 import grpc
 import warnings
 
-from . import baseline_pb2 as baseline__pb2
+from proto import baseline_pb2 as proto_dot_baseline__pb2
 
 GRPC_GENERATED_VERSION = '1.74.0'
 GRPC_VERSION = grpc.__version__
@@ -18,7 +18,7 @@ except ImportError:
 if _version_not_supported:
     raise RuntimeError(
         f'The grpc package installed is at version {GRPC_VERSION},'
-        + f' but the generated code in baseline_pb2_grpc.py depends on'
+        + f' but the generated code in proto/baseline_pb2_grpc.py depends on'
         + f' grpcio>={GRPC_GENERATED_VERSION}.'
         + f' Please upgrade your grpc module to grpcio>={GRPC_GENERATED_VERSION}'
         + f' or downgrade your generated code using grpcio-tools<={GRPC_VERSION}.'
@@ -36,8 +36,8 @@ class ArmServiceStub(object):
         """
         self.Handle = channel.unary_unary(
                 '/hermes.ArmService/Handle',
-                request_serializer=baseline__pb2.AgentEnvelope.SerializeToString,
-                response_deserializer=baseline__pb2.AgentResult.FromString,
+                request_serializer=proto_dot_baseline__pb2.AgentEnvelope.SerializeToString,
+                response_deserializer=proto_dot_baseline__pb2.AgentResult.FromString,
                 _registered_method=True)
 
 
@@ -55,8 +55,8 @@ def add_ArmServiceServicer_to_server(servicer, server):
     rpc_method_handlers = {
             'Handle': grpc.unary_unary_rpc_method_handler(
                     servicer.Handle,
-                    request_deserializer=baseline__pb2.AgentEnvelope.FromString,
-                    response_serializer=baseline__pb2.AgentResult.SerializeToString,
+                    request_deserializer=proto_dot_baseline__pb2.AgentEnvelope.FromString,
+                    response_serializer=proto_dot_baseline__pb2.AgentResult.SerializeToString,
             ),
     }
     generic_handler = grpc.method_handlers_generic_handler(
@@ -84,8 +84,8 @@ class ArmService(object):
             request,
             target,
             '/hermes.ArmService/Handle',
-            baseline__pb2.AgentEnvelope.SerializeToString,
-            baseline__pb2.AgentResult.FromString,
+            proto_dot_baseline__pb2.AgentEnvelope.SerializeToString,
+            proto_dot_baseline__pb2.AgentResult.FromString,
             options,
             channel_credentials,
             insecure,

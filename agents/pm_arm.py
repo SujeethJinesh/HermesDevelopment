@@ -168,8 +168,8 @@ Risk assessment and mitigation strategies for the proposed changes.
         instance = {
             "repo": request.repo if request.repo else "test-repo",
             "base_commit": request.base_commit if request.base_commit else "HEAD",
-            "test_patch": request.test_patch if hasattr(request, 'test_patch') else "",
-            "patch": request.patch if hasattr(request, 'patch') else "",
+            "test_patch": request.test_patch if request.test_patch else "",
+            "patch": request.patch if request.patch else "",
             "FAIL_TO_PASS": [request.test_name] if request.test_name else [],
             "environment_setup_commit": None
         }

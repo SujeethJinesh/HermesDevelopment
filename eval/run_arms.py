@@ -305,6 +305,9 @@ class ArmRunner:
                     test_name=task.get("test_name", "test_function"),
                     patch=patch,
                     seed=task_seed,
+                    repo=task.get("repo", "test-repo"),
+                    base_commit=task.get("base_commit", "HEAD"),
+                    test_patch=task.get("test_patch", ""),
                 )
                 result, rtt = transport.call_agent(
                     task["task_id"],

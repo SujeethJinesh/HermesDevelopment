@@ -210,3 +210,10 @@ __marimo__/
 scratch/
 manifest_*.json
 metrics.json
+
+# Dataset artifacts (use cache only, don't commit)
+data/swebench_lite/
+data/**
+
+# Run artifacts (publish as CI artifacts, don't commit)
+runs/**

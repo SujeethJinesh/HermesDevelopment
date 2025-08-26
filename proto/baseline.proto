@@ -57,6 +57,9 @@ message TestRequest {
   string test_name = 2;
   string patch = 3;
   int32 seed = 4;
+  string repo = 5;  // Required for RealTester
+  string base_commit = 6;  // Required for RealTester
+  string test_patch = 7;  // Optional - patch to create failing test
 }
 
 message TestResponse {
