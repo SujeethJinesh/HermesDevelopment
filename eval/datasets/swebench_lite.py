@@ -12,8 +12,9 @@ from datasets import load_dataset
 class SWEBenchLiteLoader:
     """Official loader for SWE-bench Lite dataset from Hugging Face."""
     
-    # Official dataset name and expected counts
+    # Official dataset name and expected counts - PINNED TO main
     DATASET_NAME = "SWE-bench/SWE-bench_Lite"
+    DATASET_REVISION = "main"  # Pin to main branch per acceptance requirement
     EXPECTED_DEV_COUNT = 23
     EXPECTED_TEST_COUNT = 300
     
@@ -24,11 +25,10 @@ class SWEBenchLiteLoader:
     ]
     
     def __init__(self, revision: Optional[str] = None, hermetic: bool = False, cache_dir: Optional[Path] = None):
-        """Initialize with optional pinned revision and hermetic mode.
+        """Initialize with pinned revision and hermetic mode.
         
         Args:
-            revision: HF dataset revision (commit SHA or tag). If None, reads from
-                     SWEBENCH_REVISION env var or configs/swebench_lite.yaml
+            revision: HF dataset revision - MUST be 'main' or explicitly overridden
             hermetic: If True, run in hermetic mode (offline, no network)
             cache_dir: Cache directory for hermetic runs
         """
@@ -43,17 +43,18 @@ class SWEBenchLiteLoader:
         self.hermetic = hermetic
         self.cache_dir = cache_dir
         
-        # Load config for revision if not provided
+        # ENFORCE pinned revision - default to main per acceptance requirement
         if revision is None:
-            revision = os.environ.get("SWEBENCH_REVISION")
-            if revision is None:
-                try:
-                    import yaml
-                    with open("configs/swebench_lite.yaml") as f:
-                        config = yaml.safe_load(f)
-                        revision = config.get("dataset", {}).get("revision")
-                except (FileNotFoundError, KeyError):
-                    pass  # Use latest if no revision specified
+            revision = os.environ.get("SWEBENCH_REVISION", self.DATASET_REVISION)
+            # Warn if not using canonical main
+            if revision != self.DATASET_REVISION:
+                import sys
+                print(f"[WARNING] Using non-canonical revision '{revision}' instead of 'main'", file=sys.stderr)
+        
+        # Assert we're using the canonical dataset
+        if revision != self.DATASET_REVISION:
+            import sys
+            print(f"[WARNING] T1.2 acceptance requires revision='main', got '{revision}'", file=sys.stderr)
         
         self.revision = revision
         self.expected_counts = {
@@ -97,21 +98,27 @@ class SWEBenchLiteLoader:
         return [dict(row) for row in dataset]
     
     def _validate_dataset(self, dataset, split: str):
-        """Validate dataset has expected structure and size."""
-        # Check row count
+        """Validate dataset has expected structure and size - HARD FAIL on mismatch."""
+        # Check row count - STRICT assertion per acceptance requirement
         actual_count = len(dataset)
         expected_count = self.expected_counts[split]
         if actual_count != expected_count:
-            raise ValueError(
-                f"Dataset validation failed: {split} split has {actual_count} rows, "
-                f"expected {expected_count}"
+            # HARD FAIL - acceptance gate
+            raise AssertionError(
+                f"ACCEPTANCE GATE FAILED: {split} split has {actual_count} rows, "
+                f"expected EXACTLY {expected_count} rows. "
+                f"Dataset: {self.DATASET_NAME}@{self.revision}"
             )
+        
+        # Log successful validation
+        import sys
+        print(f"[VALIDATED] {split} split: {actual_count} rows ✓ (matches expected {expected_count})", file=sys.stderr)
         
         # Check required columns
         missing_cols = set(self.REQUIRED_COLUMNS) - set(dataset.column_names)
         if missing_cols:
-            raise ValueError(
-                f"Dataset validation failed: missing required columns {missing_cols}"
+            raise AssertionError(
+                f"ACCEPTANCE GATE FAILED: missing required columns {missing_cols}"
             )
     
     def get_instances_by_ids(self, split: str, instance_ids: List[str]) -> List[Dict]:

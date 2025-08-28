@@ -106,15 +106,22 @@ class RealTester:
         if os.environ.get("HERMES_HERMETIC") == "1":
             try:
                 from env.hermetic_repos import HermeticRepoManager
-                # Use standard mirrors location
-                mirrors_dir = Path.home() / ".hermes" / "git_mirrors"
-                manager = HermeticRepoManager(mirrors_dir)
+                # Use environment variable or default location
+                mirrors_dir = Path(os.environ.get("GIT_MIRRORS_ROOT", Path.home() / ".hermes" / "git_mirrors"))
                 
                 # Verify offline mode by checking environment
                 if os.environ.get("HF_DATASETS_OFFLINE") != "1":
                     raise RuntimeError(
                         "Hermetic mode requires offline execution. "
                         "Set HF_DATASETS_OFFLINE=1 and HERMES_HERMETIC=1"
+                    )
+                
+                # Check if mirror exists before checkout
+                manager = HermeticRepoManager(mirrors_dir)
+                if not manager.repo_exists(repo_name, base_commit):
+                    raise RuntimeError(
+                        f"Mirror for {repo_name}@{base_commit} not found in {mirrors_dir}. "
+                        f"Run: python scripts/prepare_swebench_repos.py --instances_file configs/swebench_lite_slice20.txt"
                     )
                 
                 # Checkout from local mirror
@@ -181,7 +188,7 @@ class RealTester:
         return self._load_patch_bytes(maybe_ref)
     
     def apply_patch(self, repo_path: Path, patch_or_ref: Union[str, bytes]) -> None:
-        """Apply a patch to the repository with multiple fallback strategies.
+        """Apply a patch to the repository with multiple strip level fallbacks.
         
         Args:
             repo_path: Path to the repository
@@ -198,33 +205,37 @@ class RealTester:
         patch_bytes = self._load_patch_bytes(patch_or_ref)
         print(f"[REAL_TESTER] Resolved to {len(patch_bytes)} bytes", file=sys.stderr)
         
-        # Write to tmp file
-        patch_file = repo_path / ".hermes.patch"
-        patch_file.write_bytes(patch_bytes)
+        # Try common strip levels (p0, p1, p2) to handle different patch formats
+        for strip_level in [0, 1, 2]:
+            if self._git_apply_check(repo_path, patch_bytes, strip_level):
+                self._git_apply(repo_path, patch_bytes, strip_level)
+                print(f"[REAL_TESTER] Patch applied successfully with -p{strip_level}", file=sys.stderr)
+                return
         
-        # Try standard apply first
+        # All strip levels failed
+        raise RuntimeError("git apply failed for all strip levels (p0, p1, p2)")
+    
+    def _git_apply_check(self, repo_path: Path, patch_bytes: bytes, strip_level: int) -> bool:
+        """Check if patch applies cleanly with given strip level."""
         result = subprocess.run(
-            ["git", "apply", "--index", "--whitespace=nowarn", "-p0", str(patch_file)],
+            ["git", "apply", f"-p{strip_level}", "--check", "-"],
             cwd=repo_path,
+            input=patch_bytes,
+            capture_output=True
+        )
+        return result.returncode == 0
+    
+    def _git_apply(self, repo_path: Path, patch_bytes: bytes, strip_level: int) -> None:
+        """Apply patch with given strip level."""
+        result = subprocess.run(
+            ["git", "apply", f"-p{strip_level}", "-"],
+            cwd=repo_path,
+            input=patch_bytes,
             capture_output=True,
             text=True
         )
-        
         if result.returncode != 0:
-            # Try 3-way merge fallback
-            print(f"[REAL_TESTER] Standard apply failed, trying 3-way merge", file=sys.stderr)
-            result = subprocess.run(
-                ["git", "apply", "--index", "-3", "-p0", str(patch_file)],
-                cwd=repo_path,
-                capture_output=True,
-                text=True
-            )
-            
-            if result.returncode != 0:
-                patch_file.unlink()  # Clean up before raising
-                raise RuntimeError(f"Patch apply failed: {result.stderr}")
-        
-        patch_file.unlink()  # Clean up on success
+            raise RuntimeError(f"git apply -p{strip_level} failed: {result.stderr}")
     
     def _apply_patch(self, repo_path: Path, patch: str) -> None:
         """Legacy method - delegates to apply_patch."""

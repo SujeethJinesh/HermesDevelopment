@@ -43,7 +43,7 @@ class PMAgent:
     def _maybe_anchor(self, data: bytes, kind: str, ttl_s: int) -> tuple[Union[str, bytes], bool, int]:
         """
         Returns (payload_or_ref, anchored?, bytes_saved_vs_inline).
-        Anchors iff (len(data) > HARD_CAP_BYTES) OR (len(ref) < len(data) AND len(data) >= self.inline_max_bytes).
+        Kind-specific thresholds: patches stay inline unless >4KB, logs/diffs anchor >1KB.
         """
         inline_len = len(data)
         
@@ -52,13 +52,28 @@ class PMAgent:
             ref = self._put_anchor(kind, data, ttl_s)
             return ref, True, inline_len - len(ref.encode("utf-8"))
         
-        # Benefit-aware at threshold
+        # Kind-specific thresholds (bytes)
+        thresholds = {
+            "patches": 4096,   # Patches usually small; keep inline unless >4KB
+            "patch": 4096,     # Both variants
+            "diffs": 1024,     # Often sizeable
+            "diff": 1024,      # Both variants
+            "logs": 1024,      # Real pytest output benefits from anchoring
+            "log": 1024,       # Both variants
+            "approach": 2048,  # Medium threshold
+        }
+        threshold = thresholds.get(kind, self.inline_max_bytes)
+        
+        # Don't anchor if below threshold
+        if inline_len <= threshold:
+            return data, False, 0
+            
+        # Only anchor if it saves bytes
         sha16 = hashlib.sha256(data).hexdigest()[:16]
         ref = f"mcp://{kind}/{sha16}"
         ref_len = len(ref.encode("utf-8"))
         
-        # Only anchor if it saves bytes AND exceeds minimum threshold
-        if inline_len >= self.inline_max_bytes and ref_len < inline_len:
+        if ref_len < inline_len:
             self._put_anchor(kind, data, ttl_s, ref_hint=ref)
             return ref, True, inline_len - ref_len
         
@@ -308,22 +323,14 @@ index 1234567..abcdefg 100644
             )
             print(f"[PM_ARM] Test result: passed={passed}", file=sys.stderr)
             
-            # Always anchor logs > 1KB (huge wins; deterministic)
+            # Anchor test logs if beneficial (>1KB threshold from kind-specific logic)
             test_bytes = test_output.encode('utf-8') if isinstance(test_output, str) else test_output
-            
-            # Use improved _maybe_anchor with lower threshold for logs
-            # Set inline_max_bytes to 1KB temporarily for aggressive log anchoring
-            orig_inline_max = self.inline_max_bytes
-            self.inline_max_bytes = 1024  # Force anchor logs > 1KB
             
             test_output_or_ref, anchored, saved = self._maybe_anchor(test_bytes, "logs", self.ttl_logs)
             if anchored:
                 self.anchors_created += 1
                 self.bytes_saved += saved
                 print(f"[PM_ARM] Anchored test log: {len(test_bytes)} bytes -> {test_output_or_ref} (saved {saved} bytes)", file=sys.stderr)
-            
-            # Restore original threshold
-            self.inline_max_bytes = orig_inline_max
             
         except RuntimeError as e:
             # If pytest is not available, return error
