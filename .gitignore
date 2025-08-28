@@ -210,3 +210,9 @@ __marimo__/
 scratch/
 manifest_*.json
 metrics.json
+
+# Dataset and artifact directories
+.hf/
+data/
+runs/
+.mirrors/
