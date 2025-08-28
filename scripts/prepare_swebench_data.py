@@ -1,4 +1,5 @@
 """One-time cache preparation script for SWE-bench Lite dataset."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,17 +7,17 @@ import hashlib
 import json
 import os
 import pathlib
-from typing import Dict, List
+from typing import Dict
 
 from datasets import load_dataset
 
 
 def sha256_file(p: pathlib.Path) -> str:
     """Calculate SHA256 hash of a file.
-    
+
     Args:
         p: Path to file
-    
+
     Returns:
         Hex-encoded SHA256 hash
     """
@@ -56,7 +57,7 @@ def main():
     # Online fetch: ensure HF_DATASETS_OFFLINE is NOT set
     os.environ.pop("HF_DATASETS_OFFLINE", None)
     print(f"\nDownloading dataset: {args.dataset}")
-    
+
     counts: Dict[str, int] = {}
     for s in args.splits:
         print(f"  Loading split: {s}")
@@ -85,7 +86,7 @@ def main():
         "tool": "scripts/prepare_swebench_data.py",
         "version": "t12-pr1",
     }
-    
+
     man_path = pathlib.Path(hf_home) / "swebench_lite_prep_manifest.json"
     man_path.parent.mkdir(parents=True, exist_ok=True)
     man_path.write_text(json.dumps(manifest, indent=2))

@@ -1,7 +1,7 @@
 """SWE-bench Lite dataset loader with strict split-size assertions."""
+
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Iterator, Optional, Tuple
 
@@ -15,7 +15,7 @@ TEST_EXPECTED = 300
 @dataclass(frozen=True)
 class SWELiteInstance:
     """Strongly-typed instance from SWE-bench Lite dataset."""
-    
+
     instance_id: str
     repo: str
     base_commit: str
@@ -38,22 +38,22 @@ def _load_split(name: str, cache_dir: Optional[str] = None) -> datasets.Dataset:
 
 
 def load_swebench_lite(
-    cache_dir: Optional[str] = None
+    cache_dir: Optional[str] = None,
 ) -> Tuple[datasets.Dataset, datasets.Dataset]:
     """Load SWE-bench Lite dev and test splits with strict size assertions.
-    
+
     Args:
         cache_dir: Optional cache directory for datasets. If None, uses HF default.
-    
+
     Returns:
         Tuple of (dev_dataset, test_dataset)
-    
+
     Raises:
         RuntimeError: If split sizes don't match expected counts.
     """
     dev = _load_split("dev", cache_dir)
     test = _load_split("test", cache_dir)
-    
+
     if dev.num_rows != DEV_EXPECTED:
         raise RuntimeError(
             f"SWE-bench Lite dev split mismatch: expected {DEV_EXPECTED}, got {dev.num_rows}. "
@@ -64,16 +64,16 @@ def load_swebench_lite(
             f"SWE-bench Lite test split mismatch: expected {TEST_EXPECTED}, got {test.num_rows}. "
             "Counts must match the official dataset card."
         )
-    
+
     return dev, test
 
 
 def iter_instances(ds: datasets.Dataset) -> Iterator[SWELiteInstance]:
     """Iterate over dataset rows as strongly-typed instances.
-    
+
     Args:
         ds: A HuggingFace Dataset object
-    
+
     Yields:
         SWELiteInstance objects with all required fields
     """
