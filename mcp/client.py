@@ -64,6 +64,38 @@ class MCPClient:
         except Exception as e:
             logger.error(f"Failed to resolve {ref}: {e}")
             return None
+    
+    def resolve_bytes(self, ref: str) -> bytes:
+        """Strict resolution that always returns bytes or raises.
+        
+        Args:
+            ref: Reference key to resolve
+            
+        Returns:
+            Raw bytes
+            
+        Raises:
+            RuntimeError: If resolution fails
+            TypeError: If data is not bytes
+        """
+        data = self.resolve(ref)
+        
+        # Handle tuple return for backward compatibility
+        if isinstance(data, tuple):
+            ok, payload = data
+            if not ok:
+                raise RuntimeError(f"MCP resolve failed: {ref}")
+            data = payload
+        
+        # Ensure we have data
+        if data is None:
+            raise RuntimeError(f"MCP resolve returned None: {ref}")
+        
+        # Must be bytes
+        if not isinstance(data, (bytes, bytearray)):
+            raise TypeError(f"MCP client must return raw bytes, got {type(data)}")
+        
+        return bytes(data)
 
     def stat(self, ref: str) -> Optional[Dict]:
         """Get metadata about an anchor.

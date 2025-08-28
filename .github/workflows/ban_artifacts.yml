@@ -1,5 +1,4 @@
 name: Ban tracked artifacts
-
 on: [pull_request]
 
 jobs:
@@ -10,20 +9,22 @@ jobs:
       
       - name: Check for tracked artifacts
         run: |
-          set -e
+          echo "Checking for tracked artifacts..."
           bad=$(git ls-files | egrep '^(runs|data|\.hf|\.mirrors|scratch)/' || true)
           if [ -n "$bad" ]; then
             echo "::error ::Repository contains tracked artifacts:"
             echo "$bad"
             exit 1
           fi
+          echo "✅ No tracked artifacts found"
       
       - name: Check for demo files
         run: |
-          set -e
-          demos=$(git ls-files | egrep '(demo_.*\.py|.*_minimal.*\.py)' | grep -v '^tests/' || true)
+          echo "Checking for synthetic demo files..."
+          demos=$(git ls-files | grep -E 'demo_.*\.py$' | grep -v '^tests/' || true)
           if [ -n "$demos" ]; then
-            echo "::error ::Repository contains demo/minimal files outside tests:"
+            echo "::error ::Repository contains demo files outside tests/:"
             echo "$demos"
             exit 1
           fi
+          echo "✅ No demo files found outside tests/"

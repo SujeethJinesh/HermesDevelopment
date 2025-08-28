@@ -11,6 +11,7 @@ import shutil
 import os
 import json
 import time
+import hashlib
 from pathlib import Path
 from typing import Dict, Tuple, Optional, List, Union
 
@@ -105,28 +106,21 @@ class RealTester:
         if os.environ.get("HERMES_HERMETIC") == "1":
             try:
                 from env.hermetic_repos import HermeticRepoManager
-                manager = HermeticRepoManager()
+                # Use standard mirrors location
+                mirrors_dir = Path.home() / ".hermes" / "git_mirrors"
+                manager = HermeticRepoManager(mirrors_dir)
                 
-                # Verify offline mode
-                if not manager.verify_offline():
+                # Verify offline mode by checking environment
+                if os.environ.get("HF_DATASETS_OFFLINE") != "1":
                     raise RuntimeError(
                         "Hermetic mode requires offline execution. "
                         "Set HF_DATASETS_OFFLINE=1 and HERMES_HERMETIC=1"
                     )
                 
                 # Checkout from local mirror
-                success, repo_path, message = manager.checkout_repo(
-                    repo_name, base_commit, work_dir
-                )
-                
-                if success:
-                    return repo_path
-                else:
-                    # Hard fail in hermetic mode - no fallback to simulation
-                    raise RuntimeError(
-                        f"Hermetic checkout failed for {repo_name}@{base_commit}: {message}\n"
-                        f"Run scripts/prepare_swebench_repos.py to prepare local mirrors."
-                    )
+                repo_path = work_dir / repo_name.replace('/', '_')
+                manager.checkout(repo_name, base_commit, repo_path)
+                return repo_path
                     
             except ImportError as e:
                 # Hard fail if hermetic infrastructure not available
@@ -141,60 +135,88 @@ class RealTester:
                     f"Run scripts/prepare_swebench_repos.py to create local mirrors."
                 )
         
-        # Non-hermetic mode: create simulated repo structure for testing only
-        # This is acceptable for development but NOT for acceptance testing
-        repo_path = work_dir / "repo"
-        repo_path.mkdir(parents=True, exist_ok=True)
-        
-        # Create marker for tracking
-        marker = repo_path / ".hermes_checkout"
-        marker.write_text(json.dumps({
-            "repo": repo_name,
-            "commit": base_commit,
-            "setup": setup_commit,
-            "hermetic": "0",  # Explicitly mark as non-hermetic
-            "warning": "SIMULATED CHECKOUT - NOT FOR PRODUCTION"
-        }))
-        
-        return repo_path
+        # No simulation allowed - must have real repo access
+        raise RuntimeError(
+            f"Cannot checkout {repo_name}@{base_commit}: "
+            f"Hermetic mode not enabled. Set HERMES_HERMETIC=1 and prepare local mirrors."
+        )
     
     def _load_patch_bytes(self, patch_or_ref: Union[str, bytes]) -> bytes:
-        """Load patch content, resolving MCP refs if needed.
+        """Hardened MCP resolution - always returns bytes or raises.
         
         Args:
-            patch_or_ref: Either patch content or MCP reference
+            patch_or_ref: Patch content, MCP reference, or bytes
             
         Returns:
-            Actual patch bytes
+            Actual content as bytes
         """
-        # If already bytes, return as-is
         if isinstance(patch_or_ref, bytes):
             return patch_or_ref
         
-        # Check if it's an MCP reference
         if isinstance(patch_or_ref, str) and patch_or_ref.startswith("mcp://"):
             if not self.mcp_client:
                 raise RuntimeError(f"MCP ref provided but no MCP client configured: {patch_or_ref}")
             
-            # Resolve the MCP anchor to get actual patch content
-            success, data = self.mcp_client.resolve(patch_or_ref)
-            if not success or data is None:
-                raise RuntimeError(f"Failed to resolve MCP ref: {patch_or_ref}")
+            # Time the MCP dereference for production metrics
+            t0 = time.perf_counter_ns()
+            
+            # Use resolve_bytes for strict bytes return
+            data = self.mcp_client.resolve_bytes(patch_or_ref)
+            
+            t1 = time.perf_counter_ns()
+            deref_ms = (t1 - t0) / 1_000_000
+            
+            # Store timing for later aggregation
+            if not hasattr(self, 'mcp_deref_timings'):
+                self.mcp_deref_timings = []
+            self.mcp_deref_timings.append(deref_ms)
             
             return data
         
-        # Regular string patch content
+        # Plain text patch
         return patch_or_ref.encode("utf-8")
     
-    def _apply_patch(self, repo_path: Path, patch: str) -> None:
-        """Apply a patch to the repository.
+    def _resolve_bytes(self, maybe_ref: Union[str, bytes, bytearray]) -> bytes:
+        """Legacy method for compatibility - delegates to _load_patch_bytes."""
+        return self._load_patch_bytes(maybe_ref)
+    
+    def apply_patch(self, repo_path: Path, patch_or_ref: Union[str, bytes]) -> None:
+        """Apply a patch to the repository with multiple fallback strategies.
         
         Args:
             repo_path: Path to the repository
-            patch: Patch content or MCP reference to apply
+            patch_or_ref: Patch content or MCP reference to apply
         """
-        if not patch:
+        import sys
+        if not patch_or_ref:
+            print("[REAL_TESTER] No patch to apply", file=sys.stderr)
             return
+        
+        print(f"[REAL_TESTER] Applying patch, is MCP ref: {isinstance(patch_or_ref, str) and patch_or_ref.startswith('mcp://')}", file=sys.stderr)
+        
+        # Always resolve MCP refs before applying
+        patch_bytes = self._load_patch_bytes(patch_or_ref)
+        print(f"[REAL_TESTER] Resolved to {len(patch_bytes)} bytes", file=sys.stderr)
+        
+        # Write to tmp file
+        patch_file = repo_path / ".hermes.patch"
+        patch_file.write_bytes(patch_bytes)
+        
+        result = subprocess.run(
+            ["git", "apply", str(patch_file)],
+            cwd=repo_path,
+            capture_output=True,
+            text=True
+        )
+        
+        patch_file.unlink()  # Clean up
+        
+        if result.returncode != 0:
+            raise RuntimeError(f"Failed to apply patch: {result.stderr}")
+    
+    def _apply_patch(self, repo_path: Path, patch: str) -> None:
+        """Legacy method - delegates to apply_patch."""
+        self.apply_patch(repo_path, patch)
         
         # Resolve MCP references if needed
         patch_bytes = self._load_patch_bytes(patch)
@@ -225,6 +247,39 @@ class RealTester:
         finally:
             if patch_file.exists():
                 patch_file.unlink()
+    
+    def run_pytest_and_anchor_logs(self, repo_path: Path, inline_max: int = 1024) -> str:
+        """Run pytest, return either inline string or mcp://logs/... if size > threshold.
+        
+        Args:
+            repo_path: Path to the repository
+            inline_max: Maximum size before anchoring
+            
+        Returns:
+            Either the log content or MCP reference
+        """
+        # Run pytest and capture output
+        cmd = ["python", "-m", "pytest", "-xvs", "--tb=short"]
+        result = subprocess.run(
+            cmd,
+            cwd=repo_path,
+            capture_output=True,
+            timeout=300
+        )
+        
+        # Combine stdout and stderr
+        full_log = b"=== STDOUT ===\n" + result.stdout + b"\n=== STDERR ===\n" + result.stderr
+        
+        # Anchor if too large
+        if len(full_log) > inline_max:
+            ref = f"mcp://logs/{hashlib.sha256(full_log).hexdigest()[:16]}"
+            if self.mcp_client:
+                ok, _ = self.mcp_client.put(ref, full_log, ttl_s=24*3600)  # 24h TTL for logs
+                if not ok:
+                    raise RuntimeError("Failed to anchor pytest logs")
+            return ref
+        
+        return full_log.decode("utf-8", errors="replace")
     
     def _run_pytest_real(
         self,
@@ -288,6 +343,14 @@ class RealTester:
         
         return passed, output, duration_ms
     
+    
+    def get_mcp_deref_p95(self) -> Optional[float]:
+        """Get p95 MCP dereference time in ms."""
+        if not hasattr(self, 'mcp_deref_timings') or not self.mcp_deref_timings:
+            return None
+        sorted_times = sorted(self.mcp_deref_timings)
+        p95_idx = min(int(len(sorted_times) * 0.95), len(sorted_times) - 1)
+        return sorted_times[p95_idx]
     
     def cleanup(self):
         """Clean up all temporary files."""

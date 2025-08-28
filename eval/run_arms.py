@@ -11,7 +11,7 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 import pandas as pd
 import yaml
@@ -31,6 +31,34 @@ class ConfigParityError(Exception):
     """Raised when config parity is violated."""
 
     pass
+
+
+def _count_payload_bytes(payload) -> int:
+    """Count actual bytes transmitted on wire.
+    
+    For MCP references, count the reference string length + protobuf overhead.
+    For raw content, count the actual bytes.
+    For protobuf, count serialized size.
+    """
+    PROTO_OVERHEAD = 16  # Conservative protobuf framing overhead
+    
+    # Check if it's an MCP reference first
+    if isinstance(payload, str) and payload.startswith("mcp://"):
+        # MCP reference - count ref bytes + protobuf overhead
+        return len(payload.encode("utf-8")) + PROTO_OVERHEAD
+    
+    if isinstance(payload, str):
+        return len(payload.encode("utf-8"))
+    if isinstance(payload, bytes):
+        return len(payload)
+    if isinstance(payload, dict) and "mcp_ref" in payload:
+        # If it's a dict with MCP ref, count only the ref + overhead
+        return len(payload["mcp_ref"].encode("utf-8")) + PROTO_OVERHEAD
+    # For protobuf messages, serialize and count
+    if hasattr(payload, 'SerializeToString'):
+        return len(payload.SerializeToString())
+    # Fallback
+    return len(str(payload).encode("utf-8"))
 
 
 class ArmRunner:
@@ -100,6 +128,29 @@ class ArmRunner:
         self.inference_count = 0
         self.token_timings: List[float] = []
         self.rtt_measurements: List[float] = []  # Track RTT for transport
+
+    def _msg_bytes(self, payload: Union[str, bytes]) -> int:
+        """Calculate message bytes for accounting.
+        
+        Args:
+            payload: Either raw content or MCP reference
+            
+        Returns:
+            Byte count (for MCP refs, just the reference string size)
+        """
+        if payload is None:
+            return 0
+        if isinstance(payload, bytes):
+            return len(payload)
+        if isinstance(payload, str):
+            # If this is an MCP ref, charge the ref length (not the deref'd size)
+            # Count the reference string only (not deref'd content)
+            return len(payload.encode("utf-8"))
+        return 0
+    
+    def _is_mcp_ref(self, payload: str) -> bool:
+        """Check if a payload is an MCP reference."""
+        return isinstance(payload, str) and payload.startswith("mcp://")
 
     def _get_tasks(self) -> List[Dict[str, Any]]:
         """Get tasks to run.
@@ -266,10 +317,8 @@ class ArmRunner:
                     
                     # For PM arm, check if patch is an MCP reference
                     if self.arm == "PM" and code_resp.patch.startswith("mcp://"):
-                        # Track that we got an anchor
-                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
-                            self.metrics.append({"mcp_refs": []})
-                        self.metrics[-1]["mcp_refs"].append(code_resp.patch)
+                        # Track that we got an anchor (will be recorded in metrics later)
+                        pass  # MCP ref tracking happens in final metrics
                     
                     patch = code_resp.patch
                 else:
@@ -322,10 +371,8 @@ class ArmRunner:
                     
                     # For PM arm, check if output is an MCP reference
                     if self.arm == "PM" and test_resp.output.startswith("mcp://"):
-                        # Track that we got an anchor
-                        if "mcp_refs" not in self.metrics[-1] if self.metrics else {}:
-                            self.metrics.append({"mcp_refs": []})
-                        self.metrics[-1]["mcp_refs"].append(test_resp.output)
+                        # Track that we got an anchor (will be recorded in metrics later)
+                        pass  # MCP ref tracking happens in final metrics
                     
                     passed = test_resp.passed
                 else:
@@ -364,6 +411,11 @@ class ArmRunner:
             else:
                 message_path_p95 = 0.001
 
+            # Get MCP stats if PM arm
+            mcp_stats = {}
+            if self.arm == "PM":
+                mcp_stats = transport.get_mcp_stats()
+            
             return {
                 "bytes_in": total_bytes_in,
                 "bytes_out": total_bytes_out,
@@ -371,6 +423,10 @@ class ArmRunner:
                 "message_path_ms": message_path_p95,
                 "pass": passed,
                 "sandbox_setup_ms": hermetic_run.manifest["durations"]["setup_ms"],
+                # MCP stats (empty dict for non-PM arms)
+                "mcp_anchors_created": mcp_stats.get("anchors_created", 0),
+                "bytes_saved": mcp_stats.get("bytes_saved", 0),
+                "mcp_deref_ms_p95": mcp_stats.get("mcp_deref_ms_p95"),
                 # Capture full manifest with scratch listing
                 "run_manifest": hermetic_run.emit_manifest(),
                 # Mock token counts for now (would come from actual LLM)
@@ -395,11 +451,12 @@ class ArmRunner:
         task_id = task["task_id"]
         task_seed = compute_task_seed(self.seed, task_id)
 
-        # Create hermetic run
+        # Create hermetic run with correct base SHA for the task
         hermetic_run = HermeticRun(
             task_id=task_id,
             run_id=f"{self.run_id}_{task_id}",
             seed=task_seed,
+            base_sha=task.get("base_commit"),  # Use task's base commit
             hermetic=self.hermetic,
         )
 
