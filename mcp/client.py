@@ -65,6 +65,37 @@ class MCPClient:
             logger.error(f"Failed to resolve {ref}: {e}")
             return None
 
+    def resolve_bytes(self, ref: str) -> bytes:
+        """Resolve a reference to its data, returning empty bytes on failure.
+
+        Args:
+            ref: Reference key to resolve
+
+        Returns:
+            Data bytes if found, empty bytes otherwise
+        """
+        data = self.resolve(ref)
+        return data if data is not None else b""
+
+    def put_if_absent(self, ref: str, data: bytes, ttl_s: Optional[int] = None) -> None:
+        """Store data at the given reference only if it doesn't already exist.
+
+        Args:
+            ref: Reference key (e.g., "mcp://logs/1234")
+            data: Binary data to store
+            ttl_s: Time-to-live in seconds
+        """
+        # Check if already exists
+        existing = self.stat(ref)
+        if existing is not None:
+            logger.debug(f"Reference {ref} already exists, skipping put")
+            return
+
+        # Store the new data
+        success, msg = self.put(ref, data, ttl_s)
+        if not success:
+            logger.warning(f"Failed to store {ref}: {msg}")
+
     def stat(self, ref: str) -> Optional[Dict]:
         """Get metadata about an anchor.
 
