@@ -45,14 +45,14 @@ def test_split_sizes_enforced(monkeypatch):
 
 
 def test_split_mismatch_raises(monkeypatch):
-    """Test that incorrect split sizes raise AssertionError with clear message."""
+    """Test that incorrect split sizes raise RuntimeError with clear message."""
     def fake_load(name, split, cache_dir=None):
         # Return incorrect sizes
         return _StubDS(22 if split == "dev" else 299)
     
     monkeypatch.setattr("eval.datasets.swebench_lite.datasets.load_dataset", fake_load)
     
-    with pytest.raises(AssertionError) as exc_info:
+    with pytest.raises(RuntimeError) as exc_info:
         load_swebench_lite()
     
     # Verify error message mentions the official dataset card

@@ -73,7 +73,7 @@ def main():
         assert ds.num_rows == counts[s], f"Offline load failed for split {s}"
         print(f"    → OK ({ds.num_rows} instances)")
 
-    # Emit prep manifest (paths may vary by HF version; best-effort)
+    # Emit prep manifest (deterministic, timestamp-free)
     manifest = {
         "dataset": args.dataset,
         "splits": counts,
@@ -82,6 +82,8 @@ def main():
             "HF_DATASETS_CACHE": os.environ["HF_DATASETS_CACHE"],
             "HF_DATASETS_OFFLINE": os.environ["HF_DATASETS_OFFLINE"],
         },
+        "tool": "scripts/prepare_swebench_data.py",
+        "version": "t12-pr1",
     }
     
     man_path = pathlib.Path(hf_home) / "swebench_lite_prep_manifest.json"

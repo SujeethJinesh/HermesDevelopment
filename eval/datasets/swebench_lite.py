@@ -49,19 +49,21 @@ def load_swebench_lite(
         Tuple of (dev_dataset, test_dataset)
     
     Raises:
-        AssertionError: If split sizes don't match expected counts.
+        RuntimeError: If split sizes don't match expected counts.
     """
     dev = _load_split("dev", cache_dir)
     test = _load_split("test", cache_dir)
     
-    assert dev.num_rows == DEV_EXPECTED, (
-        f"SWE-bench Lite dev split mismatch: expected {DEV_EXPECTED}, got {dev.num_rows}. "
-        "Counts must match the official dataset card."
-    )
-    assert test.num_rows == TEST_EXPECTED, (
-        f"SWE-bench Lite test split mismatch: expected {TEST_EXPECTED}, got {test.num_rows}. "
-        "Counts must match the official dataset card."
-    )
+    if dev.num_rows != DEV_EXPECTED:
+        raise RuntimeError(
+            f"SWE-bench Lite dev split mismatch: expected {DEV_EXPECTED}, got {dev.num_rows}. "
+            "Counts must match the official dataset card."
+        )
+    if test.num_rows != TEST_EXPECTED:
+        raise RuntimeError(
+            f"SWE-bench Lite test split mismatch: expected {TEST_EXPECTED}, got {test.num_rows}. "
+            "Counts must match the official dataset card."
+        )
     
     return dev, test
 
