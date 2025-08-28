@@ -2,21 +2,31 @@ name: Ban tracked artifacts
 on: [pull_request]
 
 jobs:
-  ban-artifacts:
+  scan:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
-      - name: Check for tracked artifacts
+      - name: Fail on tracked artifacts
         run: |
-          echo "Checking for tracked artifacts..."
-          bad=$(git ls-files | egrep '^(runs|data|\.hf|\.mirrors|scratch)/' || true)
-          if [ -n "$bad" ]; then
-            echo "::error ::Repository contains tracked artifacts:"
-            echo "$bad"
+          set -euo pipefail
+          banned=$(git ls-files | grep -E '^(runs/|data/|\.hf/|\.mirrors/|scratch/)' || true)
+          if [ -n "$banned" ]; then
+            echo "❌ Tracked artifacts found:"
+            echo "$banned"
             exit 1
           fi
           echo "✅ No tracked artifacts found"
+      
+      - name: Ban toy/smoke in source (not tests/docs)
+        run: |
+          offenders=$(find . -type f \( -name "*.py" -o -name "*.sh" -o -name "*.yaml" -o -name "*.yml" \) ! -path "./tests/*" ! -path "./docs/*" -exec grep -nH '\b\(smoke\|toy\)_\?[0-9]*\b' {} \; 2>/dev/null || true)
+          if [ -n "$offenders" ]; then
+            echo "❌ Toy/Smoke patterns in source:"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "✅ No toy/smoke patterns in source"
       
       - name: Check for demo files
         run: |

@@ -107,6 +107,25 @@ class MCPClient:
             Metadata dict or None if not found
         """
         return self.server.stat(ref)
+    
+    def put_if_absent(self, ref: str, data: bytes, ttl_s: Optional[int] = None) -> bool:
+        """Store if missing; idempotent by content address.
+        
+        Args:
+            ref: Reference key (e.g., "mcp://logs/1234")
+            data: Binary data to store
+            ttl_s: Time-to-live in seconds
+            
+        Returns:
+            True if stored or already present, False on error
+        """
+        # Check if already exists
+        if self.stat(ref) is not None:
+            return True
+        
+        # Store it
+        ok, _ = self.put(ref, data, ttl_s=ttl_s)
+        return ok
 
     def cleanup_namespace(self, namespace: str) -> int:
         """Clean up all anchors in a namespace.

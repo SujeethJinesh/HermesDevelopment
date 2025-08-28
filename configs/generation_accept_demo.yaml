@@ -1,6 +1,8 @@
-# HERMES Generation Configuration
-# Single source of truth for generation parameters
+# Acceptance-only config to prove the mechanism; do not use in routine runs.
+# This config extends the base generation.yaml but overrides MCP threshold
+# to 1KB to ensure real pytest logs get anchored
 
+# Import base configuration
 model:
   temperature: 0.0
   top_p: 0.95
@@ -52,9 +54,10 @@ benchmarks:
   timeout_seconds: 300
   retry_attempts: 2
 
+# MCP configuration with acceptance threshold
 mcp:
-  # Inline threshold - payloads larger than this are anchored
-  inline_max_bytes: 1024  # 256B for T1.2 acceptance testing to demo MCP on typical patches
+  # Lower threshold for acceptance testing to ensure logs are anchored
+  inline_max_bytes: 1024  # 1 KB; ensures real pytest logs get anchored
   
   # TTL settings for different content types
   ttl_logs_hours: 24

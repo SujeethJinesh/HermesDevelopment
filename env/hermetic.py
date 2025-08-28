@@ -115,16 +115,21 @@ class HermeticRun:
         """Create fresh git worktree."""
         self.worktree_path.parent.mkdir(parents=True, exist_ok=True)
         
-        # Get base SHA
+        # Get base SHA for HERMES repo 
         if not self.base_sha:
             self.base_sha = self._get_repo_sha()
-        
-        # Create worktree
-        subprocess.run(
-            ["git", "worktree", "add", "--detach", str(self.worktree_path), self.base_sha],
-            check=True,
-            capture_output=True
-        )
+            
+            # Only create worktree if this is the HERMES repo SHA
+            # (for SWE-bench tasks, base_sha is from a different repo)
+            subprocess.run(
+                ["git", "worktree", "add", "--detach", str(self.worktree_path), self.base_sha],
+                check=True,
+                capture_output=True
+            )
+        else:
+            # For SWE-bench tasks with task-specific base_sha,
+            # skip worktree creation (task repo will be checked out by agents)
+            pass
     
     def _setup_venv(self) -> None:
         """Create fresh venv with network guard."""
@@ -346,6 +351,8 @@ if os.environ.get("HERMES_HERMETIC") == "1":
             
             # Update manifest with cleanup timing
             if self.cleanup_end_ns > 0:
+                if "durations" not in self.manifest:
+                    self.manifest["durations"] = {}
                 self.manifest["durations"]["cleanup_ms"] = (
                     self.cleanup_end_ns - self.cleanup_start_ns
                 ) / 1_000_000

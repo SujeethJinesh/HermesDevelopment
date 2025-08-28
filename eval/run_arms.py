@@ -33,32 +33,9 @@ class ConfigParityError(Exception):
     pass
 
 
-def _count_payload_bytes(payload) -> int:
-    """Count actual bytes transmitted on wire.
-    
-    For MCP references, count the reference string length + protobuf overhead.
-    For raw content, count the actual bytes.
-    For protobuf, count serialized size.
-    """
-    PROTO_OVERHEAD = 16  # Conservative protobuf framing overhead
-    
-    # Check if it's an MCP reference first
-    if isinstance(payload, str) and payload.startswith("mcp://"):
-        # MCP reference - count ref bytes + protobuf overhead
-        return len(payload.encode("utf-8")) + PROTO_OVERHEAD
-    
-    if isinstance(payload, str):
-        return len(payload.encode("utf-8"))
-    if isinstance(payload, bytes):
-        return len(payload)
-    if isinstance(payload, dict) and "mcp_ref" in payload:
-        # If it's a dict with MCP ref, count only the ref + overhead
-        return len(payload["mcp_ref"].encode("utf-8")) + PROTO_OVERHEAD
-    # For protobuf messages, serialize and count
-    if hasattr(payload, 'SerializeToString'):
-        return len(payload.SerializeToString())
-    # Fallback
-    return len(str(payload).encode("utf-8"))
+# Note: Wire byte counting is now done in transport layer (grpc_impl.py)
+# which measures len(envelope.SerializeToString()) for accurate wire bytes
+# This ensures we count the actual protobuf envelope size, not just payload
 
 
 class ArmRunner:

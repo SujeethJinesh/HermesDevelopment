@@ -194,7 +194,7 @@ class RealTester:
         
         print(f"[REAL_TESTER] Applying patch, is MCP ref: {isinstance(patch_or_ref, str) and patch_or_ref.startswith('mcp://')}", file=sys.stderr)
         
-        # Always resolve MCP refs before applying
+        # Always resolve MCP refs before applying - unified path
         patch_bytes = self._load_patch_bytes(patch_or_ref)
         print(f"[REAL_TESTER] Resolved to {len(patch_bytes)} bytes", file=sys.stderr)
         
@@ -202,51 +202,33 @@ class RealTester:
         patch_file = repo_path / ".hermes.patch"
         patch_file.write_bytes(patch_bytes)
         
+        # Try standard apply first
         result = subprocess.run(
-            ["git", "apply", str(patch_file)],
+            ["git", "apply", "--index", "--whitespace=nowarn", "-p0", str(patch_file)],
             cwd=repo_path,
             capture_output=True,
             text=True
         )
         
-        patch_file.unlink()  # Clean up
-        
         if result.returncode != 0:
-            raise RuntimeError(f"Failed to apply patch: {result.stderr}")
+            # Try 3-way merge fallback
+            print(f"[REAL_TESTER] Standard apply failed, trying 3-way merge", file=sys.stderr)
+            result = subprocess.run(
+                ["git", "apply", "--index", "-3", "-p0", str(patch_file)],
+                cwd=repo_path,
+                capture_output=True,
+                text=True
+            )
+            
+            if result.returncode != 0:
+                patch_file.unlink()  # Clean up before raising
+                raise RuntimeError(f"Patch apply failed: {result.stderr}")
+        
+        patch_file.unlink()  # Clean up on success
     
     def _apply_patch(self, repo_path: Path, patch: str) -> None:
         """Legacy method - delegates to apply_patch."""
         self.apply_patch(repo_path, patch)
-        
-        # Resolve MCP references if needed
-        patch_bytes = self._load_patch_bytes(patch)
-        patch_text = patch_bytes.decode("utf-8")
-        
-        # Write patch to temporary file
-        patch_file = repo_path / "temp.patch"
-        patch_file.write_text(patch_text)
-        
-        # Apply patch using git
-        try:
-            result = subprocess.run(
-                ["git", "apply", str(patch_file)],
-                cwd=repo_path,
-                capture_output=True,
-                text=True,
-                timeout=30
-            )
-            if result.returncode != 0:
-                # Log but don't fail - patch may already be applied
-                print(f"Warning: patch apply failed: {result.stderr}")
-        except subprocess.TimeoutExpired:
-            print("Warning: patch apply timed out")
-        except FileNotFoundError:
-            # Git not available, create marker for testing
-            applied_marker = repo_path / ".patches_applied"
-            applied_marker.write_text(f"Applied patch:\n{patch_text[:100]}...")
-        finally:
-            if patch_file.exists():
-                patch_file.unlink()
     
     def run_pytest_and_anchor_logs(self, repo_path: Path, inline_max: int = 1024) -> str:
         """Run pytest, return either inline string or mcp://logs/... if size > threshold.

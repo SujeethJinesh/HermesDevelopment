@@ -60,6 +60,22 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
         """Handle agent request based on role and content type."""
         start_ns = time.perf_counter_ns()
         
+        # Handle ping requests for RTT microbenchmark
+        if request.role == "ping":
+            # Simple echo for ping
+            end_ns = time.perf_counter_ns()
+            message_path_ms = (end_ns - start_ns) // 1_000_000
+            result = baseline_pb2.AgentResult(
+                ok=True,
+                content_type="application/octet-stream",
+                payload=request.payload,  # Echo back
+                message_path_ms=message_path_ms
+            )
+            # Measure wire bytes
+            result.bytes_in = len(request.SerializeToString())
+            result.bytes_out = len(result.SerializeToString())
+            return result
+        
         # Initialize task state if needed
         if request.task_id not in self.task_state:
             self.task_state[request.task_id] = {}
@@ -82,23 +98,30 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
             end_ns = time.perf_counter_ns()
             message_path_ms = (end_ns - start_ns) // 1_000_000
             
-            return baseline_pb2.AgentResult(
+            # Create result to calculate wire size
+            result = baseline_pb2.AgentResult(
                 ok=True,
                 content_type=content_type,
                 payload=result_payload,
-                bytes_in=len(request.payload),
-                bytes_out=len(result_payload),
                 message_path_ms=message_path_ms
             )
             
+            # Measure actual wire bytes (entire protobuf envelope)
+            result.bytes_in = len(request.SerializeToString())
+            result.bytes_out = len(result.SerializeToString())
+            
+            return result
+            
         except Exception as e:
             logger.error(f"Error handling request: {e}")
-            return baseline_pb2.AgentResult(
+            result = baseline_pb2.AgentResult(
                 ok=False,
-                error=str(e),
-                bytes_in=len(request.payload),
-                bytes_out=0
+                error=str(e)
             )
+            # Measure wire bytes even for errors
+            result.bytes_in = len(request.SerializeToString())
+            result.bytes_out = len(result.SerializeToString())
+            return result
     
     def _handle_json(self, request: baseline_pb2.AgentEnvelope, state: Dict) -> bytes:
         """Handle JSON payload for Arm A."""
@@ -285,8 +308,8 @@ class GrpcTransport:
         self.server = grpc.server(
             concurrent.futures.ThreadPoolExecutor(max_workers=4)
         )
-        service = ArmServiceImpl(self.arm, self.seed, self.config)
-        baseline_pb2_grpc.add_ArmServiceServicer_to_server(service, self.server)
+        self._service_impl = ArmServiceImpl(self.arm, self.seed, self.config)
+        baseline_pb2_grpc.add_ArmServiceServicer_to_server(self._service_impl, self.server)
         
         # Bind to UNIX domain socket (not TCP!)
         # Python gRPC requires unix: with single slash
@@ -335,6 +358,47 @@ class GrpcTransport:
         rtt_ms = (end_ns - start_ns) / 1_000_000
         
         return result, rtt_ms
+    
+    def ping(self, data: bytes) -> bytes:
+        """Simple echo for RTT microbenchmark.
+        
+        Args:
+            data: Payload to echo back
+            
+        Returns:
+            The same data echoed back
+        """
+        if not self.stub:
+            raise RuntimeError("Client not connected")
+        
+        # Create a minimal ping request
+        request = baseline_pb2.AgentEnvelope(
+            task_id="ping",
+            role="ping",
+            content_type="application/octet-stream",
+            payload=data,
+            trace_id="ping",
+            span_id="ping",
+            timestamp_ns=time.time_ns()
+        )
+        
+        # Call and return payload
+        result = self.stub.Handle(request)
+        return result.payload
+    
+    def get_mcp_stats(self) -> Dict[str, Any]:
+        """Get MCP stats from PM agent if available.
+        
+        Returns:
+            Dictionary with MCP statistics or empty dict
+        """
+        if hasattr(self, '_service_impl') and hasattr(self._service_impl, 'pm_agent'):
+            return self._service_impl.pm_agent.get_stats()
+        return {}
+    
+    def cleanup(self) -> None:
+        """Clean up resources (alias for stop)."""
+        self.stop()
     
     def stop(self) -> None:
         """Stop server and close connections."""

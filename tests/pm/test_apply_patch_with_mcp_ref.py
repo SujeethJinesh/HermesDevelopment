@@ -21,8 +21,8 @@ def test_apply_patch_with_mcp_ref(tmp_path):
 +print('new')
 """
     
-    # Mock resolve to return patch content
-    mcp_client.resolve.return_value = (True, patch_content)
+    # Mock resolve to return patch content (MCPClient.resolve returns just data)
+    mcp_client.resolve.return_value = patch_content
     
     # Create RealTester with MCP client
     tester = RealTester(scratch_dir=tmp_path, mcp_client=mcp_client)
@@ -77,7 +77,7 @@ def test_apply_patch_mcp_resolve_failure(tmp_path):
     
     # Create mock MCP client that fails
     mcp_client = Mock()
-    mcp_client.resolve.return_value = (False, None)
+    mcp_client.resolve.return_value = None  # MCPClient.resolve returns None on failure
     
     # Create RealTester with failing MCP client
     tester = RealTester(scratch_dir=tmp_path, mcp_client=mcp_client)
@@ -108,7 +108,7 @@ def test_full_patch_application_with_mcp(tmp_path):
 -print('original')
 +print('modified')
 """
-    mcp_client.resolve.return_value = (True, patch_content)
+    mcp_client.resolve.return_value = patch_content  # MCPClient.resolve returns just data
     
     # Create RealTester with MCP client
     tester = RealTester(scratch_dir=tmp_path, mcp_client=mcp_client)

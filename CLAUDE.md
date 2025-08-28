@@ -4,6 +4,13 @@ This document is the single source of truth for milestone evidence (artifacts, c
 
 ## IMPORTANT: Always include permalinks to the committed code and push commits to the current branch
 
+## IMPORTANT: Always include GitHub permalinks for ALL files touched
+When reporting work completed, include for every file that was created/modified/deleted:
+- GitHub permalink format: `https://github.com/SujeethJinesh/HermesDevelopment/blob/{branch_or_sha}/{path}#L{start}-L{end}`
+- Example: `https://github.com/SujeethJinesh/HermesDevelopment/blob/sujinesh/M1_F1_T12/agents/real_tester.py#L180-L184`
+- Include line numbers for specific changes
+- Brief description of what changed
+
 ---
 
 ## Evidence Pack (REQUIRED on every MVP task)

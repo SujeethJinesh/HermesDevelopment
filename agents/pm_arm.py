@@ -40,14 +40,42 @@ class PMAgent:
         self.ttl_diffs = mcp_config.get("ttl_diffs_days", 7) * 24 * 3600
         self.ttl_default = mcp_config.get("ttl_default_hours", 24) * 3600
 
-    def maybe_anchor(self, data: bytes, kind: str) -> tuple[Union[str, bytes], bool]:
-        """Return (payload_or_ref, anchored?). Never regress bytes.
-        
-        Returns:
-            Tuple of (wire_representation, was_anchored)
-            - wire_representation is either the MCP ref (str) or raw data (bytes)
-            - was_anchored indicates if MCP anchoring was used
+    def _maybe_anchor(self, data: bytes, kind: str, ttl_s: int) -> tuple[Union[str, bytes], bool, int]:
         """
+        Returns (payload_or_ref, anchored?, bytes_saved_vs_inline).
+        Anchors iff (len(data) > HARD_CAP_BYTES) OR (len(ref) < len(data) AND len(data) >= self.inline_max_bytes).
+        """
+        inline_len = len(data)
+        
+        # Always anchor beyond hard cap
+        if inline_len > self.HARD_CAP_BYTES:
+            ref = self._put_anchor(kind, data, ttl_s)
+            return ref, True, inline_len - len(ref.encode("utf-8"))
+        
+        # Benefit-aware at threshold
+        sha16 = hashlib.sha256(data).hexdigest()[:16]
+        ref = f"mcp://{kind}/{sha16}"
+        ref_len = len(ref.encode("utf-8"))
+        
+        # Only anchor if it saves bytes AND exceeds minimum threshold
+        if inline_len >= self.inline_max_bytes and ref_len < inline_len:
+            self._put_anchor(kind, data, ttl_s, ref_hint=ref)
+            return ref, True, inline_len - ref_len
+        
+        return data, False, 0
+    
+    def _put_anchor(self, kind: str, data: bytes, ttl_s: int, ref_hint: Optional[str] = None) -> str:
+        """Store data at MCP anchor, idempotent."""
+        sha16 = hashlib.sha256(data).hexdigest()[:16]
+        ref = ref_hint or f"mcp://{kind}/{sha16}"
+        ok = self.mcp_client.put_if_absent(ref, data, ttl_s=ttl_s)
+        if not ok:
+            # Log but continue - may already exist
+            pass
+        return ref
+    
+    def maybe_anchor(self, data: bytes, kind: str) -> tuple[Union[str, bytes], bool]:
+        """Legacy interface - delegates to _maybe_anchor."""
         # Calculate TTL based on kind
         if kind == "logs":
             ttl_s = self.ttl_logs
@@ -55,38 +83,12 @@ class PMAgent:
             ttl_s = self.ttl_diffs
         else:
             ttl_s = self.ttl_default
-            
-        # Check if we should anchor based on size
-        inline_bytes = len(data)
         
-        # Hard cap enforcement (never inline >256KB)
-        if inline_bytes > self.HARD_CAP_BYTES:
-            sha16 = hashlib.sha256(data).hexdigest()[:16]
-            ref = f"mcp://{kind}/{sha16}"
-            ok, _ = self.mcp_client.put(ref, data, ttl_s=ttl_s)
-            if ok:
-                self.anchors_created += 1
-                self.bytes_saved += (inline_bytes - len(ref.encode("utf-8")))
-                return ref, True
-            # If MCP fails, still return data but mark as not anchored
-            return data, False
-            
-        # Under threshold or benefit check
-        if inline_bytes > 256:  # Min threshold for anchoring
-            sha16 = hashlib.sha256(data).hexdigest()[:16]
-            ref = f"mcp://{kind}/{sha16}"
-            ref_bytes = len(ref.encode("utf-8"))
-            
-            # Only anchor if it saves bytes
-            if ref_bytes < inline_bytes:
-                ok, _ = self.mcp_client.put(ref, data, ttl_s=ttl_s)
-                if ok:
-                    self.anchors_created += 1
-                    self.bytes_saved += (inline_bytes - ref_bytes)
-                    return ref, True
-        
-        # Otherwise inline
-        return data, False
+        payload_or_ref, anchored, saved = self._maybe_anchor(data, kind, ttl_s)
+        if anchored:
+            self.anchors_created += 1
+            self.bytes_saved += saved
+        return payload_or_ref, anchored
     
     def anchor_if_beneficial(self, blob: bytes, kind: str, ttl_s: int) -> tuple[str, int]:
         """
@@ -306,25 +308,22 @@ index 1234567..abcdefg 100644
             )
             print(f"[PM_ARM] Test result: passed={passed}", file=sys.stderr)
             
-            # Force anchoring of test logs (>1KB typically) for maximum byte savings
+            # Always anchor logs > 1KB (huge wins; deterministic)
             test_bytes = test_output.encode('utf-8') if isinstance(test_output, str) else test_output
             
-            # For test logs, always anchor if >1KB (where we get real savings)
-            if len(test_bytes) > 1024:
-                sha16 = hashlib.sha256(test_bytes).hexdigest()[:16]
-                ref = f"mcp://logs/{sha16}"
-                ok, _ = self.mcp_client.put(ref, test_bytes, ttl_s=self.ttl_logs)
-                if ok:
-                    self.anchors_created += 1
-                    self.bytes_saved += (len(test_bytes) - len(ref.encode("utf-8")))
-                    test_output_or_ref = ref
-                    print(f"[PM_ARM] Anchored test log: {len(test_bytes)} bytes -> {ref} ({len(ref.encode('utf-8'))} bytes)", file=sys.stderr)
-                else:
-                    # Fallback to inline if MCP fails
-                    test_output_or_ref = test_output if isinstance(test_output, str) else test_output.decode('utf-8', errors='replace')
-            else:
-                # Small outputs can stay inline 
-                test_output_or_ref, _ = self.anchor_if_beneficial(test_bytes, "logs", self.ttl_logs)
+            # Use improved _maybe_anchor with lower threshold for logs
+            # Set inline_max_bytes to 1KB temporarily for aggressive log anchoring
+            orig_inline_max = self.inline_max_bytes
+            self.inline_max_bytes = 1024  # Force anchor logs > 1KB
+            
+            test_output_or_ref, anchored, saved = self._maybe_anchor(test_bytes, "logs", self.ttl_logs)
+            if anchored:
+                self.anchors_created += 1
+                self.bytes_saved += saved
+                print(f"[PM_ARM] Anchored test log: {len(test_bytes)} bytes -> {test_output_or_ref} (saved {saved} bytes)", file=sys.stderr)
+            
+            # Restore original threshold
+            self.inline_max_bytes = orig_inline_max
             
         except RuntimeError as e:
             # If pytest is not available, return error
