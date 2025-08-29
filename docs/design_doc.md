@@ -141,7 +141,20 @@ if os.environ.get("HERMES_HERMETIC") == "1":
 **Telemetry Disabled**:
 - `HF_HUB_DISABLE_TELEMETRY=1`
 - `DO_NOT_TRACK=1`
+- `TRANSFORMERS_NO_ADVISORY_WARNINGS=1`
+- `ACCELERATE_DISABLE_TELEMETRY=1`
 - No external metrics reporting
+
+**License and Trust**:
+- Models requiring license acceptance (e.g., Meta Llama) must be accepted before caching
+- `trust_remote_code=False` by default for security
+- When remote code is required, pin model SHA and audit before enabling
+- Document any exceptions with security justification
+
+**Deterministic Execution**:
+- Fixed seeds for random, numpy, torch (including CUDA)
+- Reproducible results across identical runs
+- Seed derivation per task for independent evaluation
 
 ## 4. Architecture Components
 

@@ -67,6 +67,52 @@ snapshot_download(
 )
 ```
 
+### 2.5 License and Trust Policy
+
+**License Acceptance**:
+- Some models (e.g., Meta Llama) require license acceptance before use
+- Accept licenses via HuggingFace Hub web interface or CLI before caching
+- Models are cached locally after first download with accepted license
+
+**Remote Code Execution**:
+```python
+model = AutoModel.from_pretrained(
+    model_name,
+    local_files_only=True,
+    trust_remote_code=False,  # Default: disable remote code execution
+    cache_dir=cache_dir
+)
+```
+- Set `trust_remote_code=False` unless explicitly required by the model
+- When remote code is required, pin model SHA and audit code before enabling
+- Document any models requiring `trust_remote_code=True` with justification
+
+### 2.6 Seed and Telemetry Policy
+
+**Deterministic Seeding**:
+```python
+# Set for reproducibility in hermetic runs
+import random
+import numpy as np
+import torch
+
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+```
+
+**Telemetry Disabled**:
+```bash
+# Disable all telemetry and analytics for hermetic execution
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+export TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+export ACCELERATE_DISABLE_TELEMETRY=1
+```
+
 ## 3. MVP Architecture
 
 ```mermaid
@@ -197,6 +243,12 @@ export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
 export HF_DATASETS_OFFLINE=1
 
+# Disable telemetry
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+export TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+export ACCELERATE_DISABLE_TELEMETRY=1
+
 # Run tests
 python -m pytest tests/ -q
 ```
@@ -255,6 +307,12 @@ export HF_DATASETS_OFFLINE=1
 export HF_HOME="$PWD/.hf"
 export HF_HUB_CACHE="$HF_HOME/hub"
 export TRANSFORMERS_CACHE="$HF_HOME/transformers"
+
+# Disable telemetry
+export HF_HUB_DISABLE_TELEMETRY=1
+export DO_NOT_TRACK=1
+export TRANSFORMERS_NO_ADVISORY_WARNINGS=1
+export ACCELERATE_DISABLE_TELEMETRY=1
 
 # Run evaluation
 python -m eval.run_arms \
