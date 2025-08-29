@@ -22,21 +22,75 @@ from agents.tester import Tester
 logger = logging.getLogger(__name__)
 
 
+class TransportMetrics:
+    """Metrics collector for transport layer."""
+
+    def __init__(self):
+        """Initialize metrics tracking."""
+        self.bytes_in_list = []
+        self.bytes_out_list = []
+        self.message_path_ms_list = []
+        self.reset()
+
+    def reset(self):
+        """Reset all metrics."""
+        self.bytes_in_list.clear()
+        self.bytes_out_list.clear()
+        self.message_path_ms_list.clear()
+
+    def record_bytes_out(self, size: int):
+        """Record outgoing bytes."""
+        self.bytes_out_list.append(size)
+
+    def record_bytes_in(self, size: int):
+        """Record incoming bytes."""
+        self.bytes_in_list.append(size)
+
+    def record_message_path(self, duration_ms: float):
+        """Record message path duration."""
+        self.message_path_ms_list.append(duration_ms)
+        # Keep only last 1000 measurements for memory efficiency
+        if len(self.message_path_ms_list) > 1000:
+            self.message_path_ms_list = self.message_path_ms_list[-1000:]
+
+    def get_percentile(self, data: list, percentile: float) -> Optional[float]:
+        """Calculate percentile from data."""
+        if not data:
+            return None
+        sorted_data = sorted(data)
+        idx = int(len(sorted_data) * percentile)
+        return sorted_data[min(idx, len(sorted_data) - 1)]
+
+    def get_stats(self) -> Dict:
+        """Get current metrics statistics."""
+        return {
+            "bytes_out_total": sum(self.bytes_out_list),
+            "bytes_in_total": sum(self.bytes_in_list),
+            "messages_sent": len(self.bytes_out_list),
+            "messages_received": len(self.bytes_in_list),
+            "message_path_ms_p50": self.get_percentile(self.message_path_ms_list, 0.50),
+            "message_path_ms_p95": self.get_percentile(self.message_path_ms_list, 0.95),
+            "message_path_ms_p99": self.get_percentile(self.message_path_ms_list, 0.99),
+        }
+
+
 class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
     """gRPC service implementation for baseline agents."""
     
-    def __init__(self, arm: str, seed: int = 0):
+    def __init__(self, arm: str, seed: int = 0, metrics: Optional[TransportMetrics] = None):
         """Initialize service with agents.
         
         Args:
             arm: "A" for JSON, "C" for Protobuf
             seed: Random seed for determinism
+            metrics: Optional metrics collector
         """
         self.arm = arm
         self.seed = seed
         self.planner = Planner(seed)
         self.coder = Coder(seed)
         self.tester = Tester(seed)
+        self.metrics = metrics or TransportMetrics()
         
         # Track state for multi-turn conversations
         self.task_state: Dict[str, Dict[str, Any]] = {}
@@ -44,6 +98,10 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
     def Handle(self, request: baseline_pb2.AgentEnvelope, context) -> baseline_pb2.AgentResult:
         """Handle agent request based on role and content type."""
         start_ns = time.perf_counter_ns()
+        
+        # Record incoming bytes
+        bytes_in = len(request.SerializeToString())
+        self.metrics.record_bytes_in(bytes_in)
         
         # Initialize task state if needed
         if request.task_id not in self.task_state:
@@ -65,25 +123,38 @@ class ArmServiceImpl(baseline_pb2_grpc.ArmServiceServicer):
             
             # Calculate message path time
             end_ns = time.perf_counter_ns()
-            message_path_ms = (end_ns - start_ns) // 1_000_000
+            message_path_ms = (end_ns - start_ns) / 1e6
+            self.metrics.record_message_path(message_path_ms)
             
-            return baseline_pb2.AgentResult(
+            result = baseline_pb2.AgentResult(
                 ok=True,
                 content_type=content_type,
                 payload=result_payload,
                 bytes_in=len(request.payload),
                 bytes_out=len(result_payload),
-                message_path_ms=message_path_ms
+                message_path_ms=int(message_path_ms)
             )
+            
+            # Record outgoing bytes
+            bytes_out = len(result.SerializeToString())
+            self.metrics.record_bytes_out(bytes_out)
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error handling request: {e}")
-            return baseline_pb2.AgentResult(
+            result = baseline_pb2.AgentResult(
                 ok=False,
                 error=str(e),
                 bytes_in=len(request.payload),
                 bytes_out=0
             )
+            
+            # Record outgoing bytes even for errors
+            bytes_out = len(result.SerializeToString())
+            self.metrics.record_bytes_out(bytes_out)
+            
+            return result
     
     def _handle_json(self, request: baseline_pb2.AgentEnvelope, state: Dict) -> bytes:
         """Handle JSON payload for Arm A."""
@@ -207,6 +278,8 @@ class GrpcTransport:
         self.server = None
         self.channel = None
         self.stub = None
+        self.metrics = TransportMetrics()
+        self.service = None
         
         # Ensure socket directory exists
         socket_dir = Path(socket_path).parent
@@ -221,8 +294,8 @@ class GrpcTransport:
         self.server = grpc.server(
             concurrent.futures.ThreadPoolExecutor(max_workers=4)
         )
-        service = ArmServiceImpl(self.arm, self.seed)
-        baseline_pb2_grpc.add_ArmServiceServicer_to_server(service, self.server)
+        self.service = ArmServiceImpl(self.arm, self.seed, self.metrics)
+        baseline_pb2_grpc.add_ArmServiceServicer_to_server(self.service, self.server)
         
         # Bind to UNIX domain socket (not TCP!)
         # Python gRPC requires unix: with single slash
@@ -271,6 +344,10 @@ class GrpcTransport:
         rtt_ms = (end_ns - start_ns) / 1_000_000
         
         return result, rtt_ms
+    
+    def get_metrics(self) -> Dict:
+        """Get transport metrics statistics."""
+        return self.metrics.get_stats()
     
     def stop(self) -> None:
         """Stop server and close connections."""

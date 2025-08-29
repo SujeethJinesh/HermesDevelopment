@@ -118,6 +118,19 @@ class MCPClient:
         """
         return self.server.cleanup_namespace(namespace)
 
+    def get_deref_p50(self) -> Optional[float]:
+        """Calculate p50 deref time in milliseconds.
+
+        Returns:
+            P50 time in ms, or None if no data
+        """
+        if not self._deref_times_ms:
+            return None
+
+        sorted_times = sorted(self._deref_times_ms)
+        p50_idx = int(len(sorted_times) * 0.50)
+        return sorted_times[min(p50_idx, len(sorted_times) - 1)]
+
     def get_deref_p95(self) -> Optional[float]:
         """Calculate p95 deref time in milliseconds.
 
