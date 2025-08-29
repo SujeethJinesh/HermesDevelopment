@@ -56,48 +56,23 @@ jobs:
           
           echo "✅ No banned artifacts found"
       
-      - name: Check for toy/smoke/synthetic in source
+      - name: Fail on toy/smoke/synthetic in source
         run: |
-          echo "Checking for toy/smoke/synthetic keywords in source..."
+          echo "Scanning for toy/smoke/synthetic in production source..."
           
-          # Get list of changed Python files
-          CHANGED_PY=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.py$' || true)
+          # Check production source directories (exclude tests)
+          HITS=$(grep -RIn -E 'toy|smoke|synthetic' agents eval mcp transport 2>/dev/null || true)
           
-          if [ -z "$CHANGED_PY" ]; then
-            echo "No Python files changed"
-            exit 0
-          fi
-          
-          # Check for banned keywords in source (excluding comments and strings)
-          FOUND_KEYWORDS=false
-          for file in $CHANGED_PY; do
-            if [ ! -f "$file" ]; then
-              continue
-            fi
-            
-            # Look for toy/smoke/synthetic in actual code (not comments)
-            # This is a simple check - can be made more sophisticated
-            if grep -E '(^|[^#"\'])(toy|smoke|synthetic)' "$file" | grep -v '^\s*#' | grep -v '^\s*"""' | grep -v "^\s*'''" > /dev/null; then
-              echo "⚠️  Found potential test keyword in: $file"
-              echo "Please review if this is intended for production code"
-              
-              # Show the lines with context
-              echo "Context:"
-              grep -n -B1 -A1 -E '(toy|smoke|synthetic)' "$file" | head -20
-              
-              # This is a warning, not a failure (may have legitimate uses)
-              # FOUND_KEYWORDS=true
-            fi
-          done
-          
-          if [ "$FOUND_KEYWORDS" = true ]; then
+          if [ -n "$HITS" ]; then
+            echo "❌ ERROR: Found banned keywords in production source:"
+            echo "$HITS"
             echo ""
-            echo "WARNING: Found toy/smoke/synthetic keywords in source code"
-            echo "Please ensure these are not test-only code paths"
-            # exit 1  # Uncomment to make this a hard failure
+            echo "These keywords are not allowed in production code."
+            echo "Remove or relocate to tests/ directory."
+            exit 1
           fi
           
-          echo "✅ Keyword check complete"
+          echo "✅ No toy/smoke/synthetic found in production source"
       
       - name: Verify .gitignore includes artifacts
         run: |

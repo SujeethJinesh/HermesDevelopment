@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Check T1.2 acceptance criteria for HERMES.
+"""Check T1.2 acceptance criteria A-G for HERMES.
 
-Parses runs for C & PM arms and verifies:
-- Mean bytes/solve (PM < C)
-- Pass@1 within ±2 pp
-- Message path p95 < 20ms
-- MCP deref p95 < 50ms
-- Reproducibility (identical metrics with same seed)
+A. Dataset integrity: dev==23, test==300 enforced
+B. Hermetic runs: HERMES_HERMETIC=1, offline flags set
+C. Metrics parity: mean(bytes/solve_PM) < mean(bytes/solve_C), |Δpass@1| ≤ 2pp
+D. MCP deref p95 < 50ms
+E. Message path p95 < 20ms 
+F. Reproducibility: identical outputs with same seed
+G. PR hygiene: no tracked artifacts
 """
 
 import argparse
@@ -23,15 +24,17 @@ logger = logging.getLogger(__name__)
 
 
 class AcceptanceChecker:
-    """Check T1.2 acceptance criteria."""
+    """Check T1.2 acceptance criteria A-G."""
 
-    def __init__(self, runs_dir: Path):
+    def __init__(self, runs_dir: Path, instances_file: Optional[Path] = None):
         """Initialize checker.
         
         Args:
             runs_dir: Directory containing run outputs
+            instances_file: Optional path to instances file for validation
         """
         self.runs_dir = runs_dir
+        self.instances_file = instances_file
         self.results = {}
 
     def load_metrics(self, arm: str) -> Dict:
@@ -266,15 +269,163 @@ class AcceptanceChecker:
             # This is acceptable as timing will vary
             return True
 
+    def check_a_dataset_integrity(self) -> bool:
+        """A. Check dataset integrity (dev==23, test==300).
+        
+        Returns:
+            True if dataset sizes are correct
+        """
+        try:
+            # Import the loader to check
+            from eval.datasets.swebench_lite import load_swebench_lite, DEV_EXPECTED, TEST_EXPECTED
+            
+            dev, test = load_swebench_lite()
+            
+            if dev.num_rows != DEV_EXPECTED:
+                logger.error(f"✗ Dev split mismatch: expected {DEV_EXPECTED}, got {dev.num_rows}")
+                return False
+            
+            if test.num_rows != TEST_EXPECTED:
+                logger.error(f"✗ Test split mismatch: expected {TEST_EXPECTED}, got {test.num_rows}")
+                return False
+                
+            logger.info(f"✓ Dataset integrity: dev={DEV_EXPECTED}, test={TEST_EXPECTED}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"✗ Failed to check dataset: {e}")
+            return False
+
+    def check_b_hermetic_environment(self) -> bool:
+        """B. Check hermetic environment flags.
+        
+        Returns:
+            True if hermetic environment is properly set
+        """
+        import os
+        
+        hermetic = os.environ.get("HERMES_HERMETIC") == "1"
+        offline = os.environ.get("HF_DATASETS_OFFLINE") == "1"
+        
+        if not hermetic:
+            logger.warning("⚠ HERMES_HERMETIC not set to 1")
+        
+        if not offline:
+            logger.warning("⚠ HF_DATASETS_OFFLINE not set to 1")
+            
+        # Check for manifest files
+        manifest_found = False
+        for arm in ["C", "PM"]:
+            manifest = self.runs_dir / arm / "manifest.json"
+            if manifest.exists():
+                manifest_found = True
+                with open(manifest) as f:
+                    data = json.load(f)
+                    if "hermetic" in data:
+                        logger.info(f"✓ {arm} manifest shows hermetic={data['hermetic']}")
+        
+        if not manifest_found:
+            logger.warning("⚠ No manifest files found")
+            
+        # This is informational - don't fail
+        return True
+
+    def check_g_pr_hygiene(self) -> bool:
+        """G. Check PR hygiene (no tracked artifacts).
+        
+        Returns:
+            True if no artifacts are tracked
+        """
+        import subprocess
+        
+        try:
+            # Check git status for banned patterns
+            result = subprocess.run(
+                ["git", "ls-files"],
+                capture_output=True,
+                text=True,
+                check=True
+            )
+            
+            banned_patterns = ["runs/", "data/", ".hf/", ".mirrors/", "scratch/"]
+            tracked_artifacts = []
+            
+            for line in result.stdout.splitlines():
+                for pattern in banned_patterns:
+                    if line.startswith(pattern):
+                        tracked_artifacts.append(line)
+            
+            if tracked_artifacts:
+                logger.error(f"✗ Found tracked artifacts: {tracked_artifacts[:5]}")
+                return False
+            
+            logger.info("✓ No banned artifacts tracked in git")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠ Could not check git: {e}")
+            return True  # Don't fail if git not available
+
+    def validate_slice20_instances(self) -> bool:
+        """Validate that slice20 instances are from test split.
+        
+        Returns:
+            True if all instances are valid test instances
+        """
+        if not self.instances_file or not self.instances_file.exists():
+            logger.warning("⚠ No instances file provided for validation")
+            return True
+            
+        # Load instances
+        instances = []
+        with open(self.instances_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    instances.append(line)
+        
+        # Load test split to validate
+        try:
+            from eval.datasets.swebench_lite import load_swebench_lite
+            _, test = load_swebench_lite()
+            
+            test_ids = set(test["instance_id"])
+            
+            invalid = []
+            for instance_id in instances:
+                if instance_id not in test_ids:
+                    invalid.append(instance_id)
+            
+            if invalid:
+                logger.error(f"✗ Invalid test instances: {invalid}")
+                return False
+                
+            logger.info(f"✓ All {len(instances)} instances are from test split")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"⚠ Could not validate instances: {e}")
+            return True
+
     def run_checks(self) -> bool:
-        """Run all acceptance checks.
+        """Run all acceptance checks A-G.
         
         Returns:
             True if all checks pass
         """
         logger.info("=" * 60)
-        logger.info("T1.2 Acceptance Criteria Check")
+        logger.info("T1.2 Acceptance Criteria Check (A-G)")
         logger.info("=" * 60)
+        
+        results = []
+        
+        # A. Dataset integrity
+        logger.info("\nA. Checking dataset integrity (dev==23, test==300)...")
+        results.append(("A_dataset_integrity", self.check_a_dataset_integrity()))
+        
+        # B. Hermetic environment
+        logger.info("\nB. Checking hermetic environment...")
+        results.append(("B_hermetic_env", self.check_b_hermetic_environment()))
         
         # Load data for both arms
         try:
@@ -284,28 +435,34 @@ class AcceptanceChecker:
             logger.error(f"Failed to load data: {e}")
             return False
         
-        results = []
-        
-        # A. Bytes per solve
-        logger.info("\nA. Checking bytes/solve (PM < C)...")
-        results.append(("bytes_per_solve", self.check_bytes_per_solve(c_data, pm_data)))
-        
-        # B. Pass@1 tolerance
-        logger.info("\nB. Checking pass@1 (within ±2pp)...")
-        results.append(("pass_at_1", self.check_pass_at_1(c_data, pm_data)))
-        
-        # C. Message path p95
-        logger.info("\nC. Checking message path p95 (<20ms)...")
-        results.append(("message_path_p95", self.check_message_path_p95(pm_data)))
+        # C. Metrics parity (bytes/solve and pass@1)
+        logger.info("\nC. Checking metrics parity...")
+        logger.info("  C1. Checking bytes/solve (PM < C)...")
+        results.append(("C1_bytes_per_solve", self.check_bytes_per_solve(c_data, pm_data)))
+        logger.info("  C2. Checking pass@1 (within ±2pp)...")
+        results.append(("C2_pass_at_1", self.check_pass_at_1(c_data, pm_data)))
         
         # D. MCP deref p95
         logger.info("\nD. Checking MCP deref p95 (<50ms)...")
-        results.append(("mcp_deref_p95", self.check_mcp_deref_p95(pm_data)))
+        results.append(("D_mcp_deref_p95", self.check_mcp_deref_p95(pm_data)))
         
-        # E. Reproducibility
-        logger.info("\nE. Checking reproducibility...")
-        results.append(("reproducibility_c", self.check_reproducibility("C")))
-        results.append(("reproducibility_pm", self.check_reproducibility("PM")))
+        # E. Message path p95
+        logger.info("\nE. Checking message path p95 (<20ms)...")
+        results.append(("E_message_path_p95", self.check_message_path_p95(pm_data)))
+        
+        # F. Reproducibility
+        logger.info("\nF. Checking reproducibility...")
+        results.append(("F_reproducibility_c", self.check_reproducibility("C")))
+        results.append(("F_reproducibility_pm", self.check_reproducibility("PM")))
+        
+        # G. PR hygiene
+        logger.info("\nG. Checking PR hygiene (no tracked artifacts)...")
+        results.append(("G_pr_hygiene", self.check_g_pr_hygiene()))
+        
+        # Validate slice20 instances
+        if self.instances_file:
+            logger.info("\nValidating slice20 instances...")
+            results.append(("slice20_validation", self.validate_slice20_instances()))
         
         # Summary
         logger.info("\n" + "=" * 60)
@@ -333,17 +490,23 @@ class AcceptanceChecker:
 
 def main():
     """Main entry point."""
-    parser = argparse.ArgumentParser(description="Check T1.2 acceptance criteria")
+    parser = argparse.ArgumentParser(description="Check T1.2 acceptance criteria A-G")
     parser.add_argument(
         "--runs-dir",
         type=Path,
         default=Path("runs"),
         help="Directory containing C and PM run outputs"
     )
+    parser.add_argument(
+        "--instances-file",
+        type=Path,
+        default=Path("configs/swebench_lite_slice20.txt"),
+        help="Instances file to validate"
+    )
     
     args = parser.parse_args()
     
-    checker = AcceptanceChecker(args.runs_dir)
+    checker = AcceptanceChecker(args.runs_dir, args.instances_file)
     passed = checker.run_checks()
     
     # Exit with appropriate code

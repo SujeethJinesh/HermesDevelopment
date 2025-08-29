@@ -1,4 +1,6 @@
-# SWE-bench Lite slice of 20 test instances
+# SWE-bench Lite slice of 20 TEST split instances
+# These are verified to be from the test split (300 instances total)
+# The loader in eval/datasets/swebench_lite.py enforces dev==23, test==300
 # Selected to cover diverse repositories and complexity levels
 # Format: owner__repo-issue
 
