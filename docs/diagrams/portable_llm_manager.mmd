@@ -1,0 +1,104 @@
+```mermaid
+flowchart TB
+  subgraph API["Client API Layer"]
+    LC["clients/llm_client.py"]:::api
+    ENV["HERMES_BACKEND env var"]:::config
+  end
+  
+  subgraph Backend["Portable Multi-Process Backend"]
+    PM["llm/portable_manager.py<br/>(PortableMultiInstanceManager)"]:::manager
+    
+    subgraph Pool["Process Pool (spawn)"]
+      P1["Process 1<br/>Model Instance<br/>Device: cuda:0"]:::process
+      P2["Process 2<br/>Model Instance<br/>Device: cuda:1"]:::process
+      P3["Process 3<br/>Model Instance<br/>Device: mps:0"]:::process
+      PN["Process N<br/>Model Instance<br/>Device: cpu"]:::process
+    end
+    
+    subgraph Queue["Request Management"]
+      RQ["Request Queue<br/>(Round-robin)"]:::queue
+      RM["Response Map<br/>(Future-based)"]:::queue
+    end
+  end
+  
+  subgraph Device["Device Abstraction"]
+    subgraph CUDA["CUDA GPUs"]
+      GPU0["GPU 0<br/>H100/A100"]:::gpu
+      GPU1["GPU 1<br/>H100/A100"]:::gpu
+    end
+    
+    subgraph MPS["Apple Silicon"]
+      M1["MPS Device<br/>Unified Memory"]:::apple
+    end
+    
+    subgraph CPU["CPU Fallback"]
+      C1["CPU Cores<br/>No Acceleration"]:::cpu
+    end
+  end
+  
+  subgraph Quantization["Platform Quantization"]
+    BNB["BitsAndBytes<br/>4-bit/8-bit<br/>(CUDA only)"]:::quant
+    FP16["Float16<br/>No quantization<br/>(MPS/CPU)"]:::quant
+    SMALL["Smaller Models<br/>≤8B params<br/>(Memory constrained)"]:::quant
+  end
+  
+  subgraph Cache["Model Cache"]
+    HF["HuggingFace Cache<br/>.hf/models/"]:::storage
+    TOK["Tokenizer Cache<br/>.hf/tokenizers/"]:::storage
+  end
+  
+  %% API to Backend connections
+  LC --> |"backend selection"| ENV
+  ENV --> |"portable_hf"| PM
+  
+  %% Manager to Pool connections
+  PM --> |"spawn processes"| P1
+  PM --> |"spawn processes"| P2
+  PM --> |"spawn processes"| P3
+  PM --> |"spawn processes"| PN
+  
+  %% Queue management
+  PM --> RQ
+  RQ --> |"round-robin"| P1
+  RQ --> |"round-robin"| P2
+  RQ --> |"round-robin"| P3
+  RQ --> |"round-robin"| PN
+  
+  P1 --> RM
+  P2 --> RM
+  P3 --> RM
+  PN --> RM
+  RM --> PM
+  
+  %% Process to Device mapping
+  P1 --> GPU0
+  P2 --> GPU1
+  P3 --> M1
+  PN --> C1
+  
+  %% Quantization policies
+  GPU0 --> BNB
+  GPU1 --> BNB
+  M1 --> FP16
+  M1 --> SMALL
+  C1 --> FP16
+  
+  %% Cache connections
+  P1 --> HF
+  P2 --> HF
+  P3 --> HF
+  PN --> HF
+  HF --> TOK
+  
+  %% Styling
+  classDef api fill:#E8F1FF,stroke:#2B6CB0,color:#1A365D
+  classDef manager fill:#FFF5F7,stroke:#B83280,color:#702459
+  classDef process fill:#F0FFF4,stroke:#38A169,color:#22543D
+  classDef gpu fill:#FFFBEA,stroke:#B7791F,color:#744210
+  classDef apple fill:#E6FFFA,stroke:#00A3C4,color:#035E73
+  classDef cpu fill:#F7FAFC,stroke:#4A5568,color:#2D3748
+  classDef quant fill:#FEF5E7,stroke:#D35400,color:#873600
+  classDef storage fill:#EDF2F7,stroke:#5A67D8,color:#2C3E50
+  classDef queue fill:#FFF5F5,stroke:#E53E3E,color:#742A2A
+  classDef config fill:#F0FDF4,stroke:#16A34A,color:#14532D
+```
