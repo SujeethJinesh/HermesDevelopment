@@ -1,0 +1,31 @@
+# SWE-bench Lite slice of 20 test instances
+# Selected to cover diverse repositories and complexity levels
+# Format: owner__repo-issue
+
+# Django instances (web framework)
+django__django-11001
+django__django-11019
+django__django-11039
+django__django-11049
+django__django-11099
+
+# Astropy instances (astronomy)
+astropy__astropy-6938
+astropy__astropy-7746
+astropy__astropy-12907
+astropy__astropy-14182
+astropy__astropy-14365
+
+# Additional Django instances
+django__django-11133
+django__django-11179
+django__django-11283
+django__django-11564
+django__django-11583
+
+# Additional Astropy instances  
+astropy__astropy-14995
+django__django-11620
+django__django-11630
+django__django-10914
+django__django-10924

@@ -1,0 +1,133 @@
+name: Ban Artifacts Check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  check-artifacts:
+    name: Check for banned artifacts
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0  # Full history for diff
+      
+      - name: Check for banned directories
+        run: |
+          echo "Checking for banned artifact directories..."
+          
+          # Get list of changed files
+          CHANGED_FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
+          
+          # Define banned patterns
+          BANNED_PATTERNS=(
+            "runs/**"
+            "data/**"
+            ".hf/**"
+            ".mirrors/**"
+            "scratch/**"
+          )
+          
+          # Check each changed file
+          FOUND_BANNED=false
+          for file in $CHANGED_FILES; do
+            for pattern in "${BANNED_PATTERNS[@]}"; do
+              # Convert glob pattern to regex for matching
+              regex=$(echo "$pattern" | sed 's/\*\*/.*/')
+              regex=$(echo "$regex" | sed 's/\*/[^\/]*/')
+              
+              if echo "$file" | grep -E "^$regex" > /dev/null; then
+                echo "❌ Found banned artifact: $file (matches $pattern)"
+                FOUND_BANNED=true
+              fi
+            done
+          done
+          
+          if [ "$FOUND_BANNED" = true ]; then
+            echo ""
+            echo "ERROR: This PR contains banned artifact files."
+            echo "Please remove all files from: runs/**, data/**, .hf/**, .mirrors/**, scratch/**"
+            echo "These directories should be in .gitignore"
+            exit 1
+          fi
+          
+          echo "✅ No banned artifacts found"
+      
+      - name: Check for toy/smoke/synthetic in source
+        run: |
+          echo "Checking for toy/smoke/synthetic keywords in source..."
+          
+          # Get list of changed Python files
+          CHANGED_PY=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | grep '\.py$' || true)
+          
+          if [ -z "$CHANGED_PY" ]; then
+            echo "No Python files changed"
+            exit 0
+          fi
+          
+          # Check for banned keywords in source (excluding comments and strings)
+          FOUND_KEYWORDS=false
+          for file in $CHANGED_PY; do
+            if [ ! -f "$file" ]; then
+              continue
+            fi
+            
+            # Look for toy/smoke/synthetic in actual code (not comments)
+            # This is a simple check - can be made more sophisticated
+            if grep -E '(^|[^#"\'])(toy|smoke|synthetic)' "$file" | grep -v '^\s*#' | grep -v '^\s*"""' | grep -v "^\s*'''" > /dev/null; then
+              echo "⚠️  Found potential test keyword in: $file"
+              echo "Please review if this is intended for production code"
+              
+              # Show the lines with context
+              echo "Context:"
+              grep -n -B1 -A1 -E '(toy|smoke|synthetic)' "$file" | head -20
+              
+              # This is a warning, not a failure (may have legitimate uses)
+              # FOUND_KEYWORDS=true
+            fi
+          done
+          
+          if [ "$FOUND_KEYWORDS" = true ]; then
+            echo ""
+            echo "WARNING: Found toy/smoke/synthetic keywords in source code"
+            echo "Please ensure these are not test-only code paths"
+            # exit 1  # Uncomment to make this a hard failure
+          fi
+          
+          echo "✅ Keyword check complete"
+      
+      - name: Verify .gitignore includes artifacts
+        run: |
+          echo "Checking .gitignore configuration..."
+          
+          # Check that .gitignore exists
+          if [ ! -f .gitignore ]; then
+            echo "❌ Missing .gitignore file"
+            exit 1
+          fi
+          
+          # Check for required ignore patterns
+          REQUIRED_IGNORES=(
+            "runs/"
+            "data/"
+            ".hf/"
+            ".mirrors/"
+            "scratch/"
+          )
+          
+          MISSING_IGNORES=""
+          for pattern in "${REQUIRED_IGNORES[@]}"; do
+            if ! grep -q "^$pattern" .gitignore; then
+              MISSING_IGNORES="$MISSING_IGNORES $pattern"
+            fi
+          done
+          
+          if [ -n "$MISSING_IGNORES" ]; then
+            echo "⚠️  Missing from .gitignore:$MISSING_IGNORES"
+            echo "Consider adding these patterns to .gitignore"
+          else
+            echo "✅ All artifact directories are in .gitignore"
+          fi
